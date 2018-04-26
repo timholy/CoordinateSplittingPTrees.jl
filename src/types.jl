@@ -92,11 +92,19 @@ struct Children{M,B,L}
     metas::NTuple{L,M}    # metadata for the evaluation points corresponding to new children
 end
 
+"""
+    struct Split
+        dims       # a tuple like (3,5) holding the splitting dimensions
+        xs         # a tuple like (1.2,-15.3), the new positions along the splitting dimensions
+        self       # the child-box with the same position as the parent box
+        others     # the other children and metadata of the parent box
+    end
+"""
 struct Split{p,T,M,B,L}
-    dims::NTuple{p,Int}      # the dimensions we're splitting along
-    xs::NTuple{p,T}          # new positions along the splitting dimensions
-    self::B                  # child maintaining the evaluation position of the parent
-    others::Children{M,B,L}  # the children with the new evaluation points
+    dims::NTuple{p,Int}
+    xs::NTuple{p,T}
+    self::B
+    others::Children{M,B,L}
 end
 Split{p,T}(dims::NTuple{p,Integer},
            xs::NTuple{p,Any},
@@ -229,7 +237,7 @@ AbstractTrees.printnode(io::IO, box::Box) = isleaf(box) ? print(io, box) : print
 ## Other iteration.
 
 # The iterators in AbstractTrees are not sufficiently high-performance
-# for our needs.
+# for our needs. Moreover we need customized visitation patterns.
 
 Base.iteratorsize(::Type{<:Box}) = Base.SizeUnknown()
 
@@ -238,6 +246,51 @@ struct VisitorState{B<:Box}
     childindex::Int
 end
 
-struct LeafIterator{B<:Box}
+abstract type CSpTreeIterator end
+
+Base.iteratorsize(::Type{<:CSpTreeIterator}) = Base.SizeUnknown()
+
+struct LeafIterator{B<:Box} <: CSpTreeIterator
     root::B
 end
+Base.eltype(::Type{LeafIterator{B}}) where B<:Box = B
+
+struct NonleafIterator{B<:Box} <: CSpTreeIterator
+    root::B
+end
+Base.eltype(::Type{NonleafIterator{B}}) where B<:Box = B
+
+struct SplitIterator{B<:Box} <: CSpTreeIterator
+    base::B
+end
+Base.eltype(::Type{SplitIterator{B}}) where B<:Box{p,T,M,L} where {p,T,M,L} =
+    Split{p,T,M,B,L}
+
+maxchildren(splits::SplitIterator) = maxchildren(splits.base)
+
+struct ClimbingState{B<:Box}
+    box::B                  # current top-level node
+    visited::Bool           # true if box.split has already been returned
+    skipchildindex::UInt8   # index of branch from which we climbed
+    childindex::Int         # index of branch we're currently exploring
+    branchiter::NonleafIterator{B}  # iterator for the current branch
+    branchstate::VisitorState{B}    # state for the current branch
+end
+
+# Create a state that marks `box`'s branch as having been visited
+ClimbingState(box::Box, visited::Bool) = ClimbingState(box, visited, box.childindex)
+
+function ClimbingState(box::B, visited::Bool, skipchildindex::Integer) where B<:Box
+    iter = NonleafIterator(box)
+    branchstate = VisitorState(box, maxchildren(box))
+    if isroot(box)
+        @assert(!visited)
+        return ClimbingState(box, true, skipchildindex, maxchildren(box), iter, branchstate)
+    end
+    return ClimbingState(box.parent, false, skipchildindex, -1, iter, branchstate)
+end
+
+# Replace the branch state
+ClimbingState(cstate::ClimbingState{B}, vstate::VisitorState) where B =
+    ClimbingState(cstate.box, cstate.visited, cstate.skipchildindex,
+                  cstate.childindex, cstate.branchiter, vstate)

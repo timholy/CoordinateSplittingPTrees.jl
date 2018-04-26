@@ -346,6 +346,9 @@ function meta(box::Box)
     return box.parent.split.others.metas[box.childindex]
 end
 
+getchild(split, childidx) = childidx == 0 ? split.self :
+                                            split.others.children[childidx]
+
 # """
 #     boxp = find_parent_with_splitdim(box, splitdim::Integer)
 
@@ -385,7 +388,7 @@ function find_leaf_at(root::Box, x)
             xsd = x[sd]
             childidx |= (abs(xsd - xother) <= abs(xsd - xself)) << (j-1)
         end
-        root = childidx == 0 ? split.self : split.others.children[childidx]
+        root = getchild(split, childidx)
     end
     return root
 end
@@ -427,10 +430,14 @@ function up(box, root)
 end
 
 
-Base.iteratorsize(::Type{<:LeafIterator}) = Base.SizeUnknown()
-Base.eltype(::Type{LeafIterator{B}}) where B<:Box = B
+"""
+    iter = leaves(box)
 
+Return an iterator visiting the leaf-nodes below `box` in depth-first order.
+"""
 leaves(root::Box) = LeafIterator(root)
+
+## LeafIterator
 
 function Base.start(iter::LeafIterator)
     isleaf(iter.root) && return VisitorState(iter.root, 0)
@@ -450,7 +457,101 @@ function find_next_leaf(iter::LeafIterator, state::VisitorState)
     return state
 end
 
-function Base.length(iter::Union{Box,LeafIterator})
+## NonleafIterator
+
+# depth-first pre-order
+function Base.start(iter::NonleafIterator)
+    return VisitorState(iter.root, isleaf(iter.root) ? maxchildren(iter.root) : 0)
+end
+
+Base.done(iter::NonleafIterator, state::VisitorState) = state.childindex >= maxchildren(iter.root)
+
+function Base.next(iter::NonleafIterator, state::VisitorState)
+    @assert(!isleaf(state.box))
+    return (state.box, find_next_nonleaf(iter, state))
+end
+function find_next_nonleaf(iter::NonleafIterator, state::VisitorState)
+    _, state = next(iter.root, state)
+    while isleaf(state.box) && state.childindex < maxchildren(iter.root)
+        _, state = next(iter.root, state)
+    end
+    return state
+end
+
+
+"""
+    iter = splits(box)
+
+Return an iterator for visiting the dimension-splits in the sub-tree
+containing `box`. Branches below `box` are explored first; once
+exhausted, a step is taken up the tree and branches below the other
+children of `box`'s parent are explored. Search terminates when all
+branches below the root node have been explored.
+
+The iterator returns the `split` field of non-leaf boxes (see
+[`CoordinateSplittingPTrees.Split`](@ref)), so a loop should be written as
+
+    for split in splits(box)
+        # do something with split
+    end
+"""
+splits(box::Box) = SplitIterator(box)
+
+function nobranch(box, skipchildindex, childindex)
+    return childindex < maxchildren(box) &&
+        (childindex == skipchildindex ||
+         isleaf(getchild(box.split, childindex)))
+end
+
+function Base.start(splits::SplitIterator)
+    box = splits.base
+    isleaf(box) && return ClimbingState(box, false)
+    return ClimbingState(box.split.self, false, typemax(box.childindex))  # don't skip any of the children
+end
+
+function Base.next(splits::SplitIterator, state::ClimbingState)
+    split, visited = state.box.split, state.visited
+    item, state = _next(splits, state)
+    if item == split && visited
+        item, state = _next(splits, state)
+    end
+    return item, state
+end
+
+function _next(splits, state)
+    branchiter, branchstate = state.branchiter, state.branchstate
+    if !done(branchiter, branchstate)
+        box, branchstate = next(branchiter, branchstate)
+        return box.split, ClimbingState(state, branchstate)
+    end
+    box = state.box
+    item = box.split
+    # Find the next valid split
+    skipchildindex, childindex = state.skipchildindex, state.childindex+1
+    while nobranch(box, skipchildindex, childindex)
+        childindex += 1
+    end
+    if childindex >= maxchildren(box)  # go up
+        return item, ClimbingState(box, state.visited)
+    end
+    iter = NonleafIterator(getchild(box.split, childindex))
+    return item, ClimbingState(box, true, skipchildindex, childindex, iter, start(iter))
+end
+
+function Base.done(splits::SplitIterator, state::ClimbingState)
+    (isroot(state.box) & state.visited) || return false
+    done(state.branchiter, state.branchstate) || return false
+    state.childindex >= maxchildren(splits)-1 && return true
+    split = state.box.split
+    for i = state.childindex+1:maxchildren(splits)-1
+        i == state.skipchildindex && continue
+        isleaf(getchild(split, i)) || return false
+    end
+    return true
+end
+
+
+function Base.length(iter::Union{Box,CSpTreeIterator})
     state = start(iter)
     len = 0
     while !done(iter, state)
@@ -458,4 +559,10 @@ function Base.length(iter::Union{Box,LeafIterator})
         len += 1
     end
     len
+end
+
+# useful for debugging
+function Base.show(io::IO, state::ClimbingState)
+    println(io, "box $(state.box), visited $(state.visited), splitdims $(state.box.split.dims), skipidx $(state.skipchildindex), childidx $(state.childindex)")
+    print(io, "branchiter $(state.branchiter.root), branch-is-done $(done(state.branchiter, state.branchstate))")
 end

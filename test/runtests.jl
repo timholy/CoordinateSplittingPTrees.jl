@@ -1,4 +1,5 @@
 using CoordinateSplittingPTrees
+using CoordinateSplittingPTrees: addpoint!
 using Base.Test
 
 function collect_positions(root::Box{p,T}) where {p,T}
@@ -425,6 +426,69 @@ end
         pos, bbs = geom[leaf]
         @test position(leaf) == pos
         @test boxbounds(leaf) == bbs
+    end
+end
+
+@testset "Split iteration" begin
+    f(x) = rand()
+
+    n = 3
+    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    root = Box{2}(world)
+    x = ones(n)
+    box = addpoint!(root, x, [(1,2), (3,1)], f)
+    x = [0.6, 2, 2]
+    box = addpoint!(root, x, [(1,2), (3,2)], f)
+    s = [split.dims for split in splits(box)]
+    @test s == [(3,2), (1,2), (3,1), (1,2)]
+    box = box.parent
+    s = [split.dims for split in splits(box)]
+    @test s == [(3,2), (1,2), (3,1), (1,2)]
+    box = box.parent
+    s = [split.dims for split in splits(box)]
+    @test s == [(1,2), (3,2), (3,1), (1,2)]
+    box = box.parent
+    s = [split.dims for split in splits(box)]
+    @test s == [(3,1), (1,2), (3,2), (1,2)]
+    box = box.parent
+    s = [split.dims for split in splits(box)]
+    @test s == [(1,2), (3,1), (1,2), (3,2)]
+
+    n = 6
+    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    root = Box{2}(world)
+    x = ones(n); addpoint!(root, x, [(1,2), (3,4), (5,6)], f)
+    x = [0.8; 0.8; 0.8; 0.2; 0.2; 0.2]; addpoint!(root, x, [(1,3), (2,5), (4,6)], f)
+    x = fill(0.2, n); addpoint!(root, x, [(1,5), (3,6), (2,4)], f)
+    box = find_leaf_at(root, [0.2,0,0.2,0,0.2,0])
+    s = [split.dims for split in splits(box)]
+    @test s == [(3,6), (2,4), (1,5), (1,2), (3,4), (1,3), (2,5), (4,6), (5,6)]
+    box = box.parent
+    s = [split.dims for split in splits(box)]
+    @test s == [(3,6), (2,4), (1,5), (1,2), (3,4), (1,3), (2,5), (4,6), (5,6)]
+    box = find_leaf_at(root, [0.8,0.8,0.8,0.2,0.2,0.2])
+    s = [split.dims for split in splits(box)]
+    @test s == [(4,6), (2,5), (1,3), (3,4), (5,6), (1,2), (1,5), (3,6), (2,4)]
+    box = find_leaf_at(root, ones(6))
+    s = [split.dims for split in splits(box)]
+    @test s == [(5,6), (3,4), (1,3), (2,5), (4,6), (1,2), (1,5), (3,6), (2,4)]
+    box = find_leaf_at(root, [1,1,0,0,0,0])
+    s = [split.dims for split in splits(box)]
+    @test s == [(3,4), (1,3), (2,5), (4,6), (5,6), (1,2), (1,5), (3,6), (2,4)]
+    s = [split.dims for split in splits(root)]
+    @test s == [(1,2), (1,5), (3,6), (2,4), (3,4), (1,3), (2,5), (4,6), (5,6)]
+
+    n = 8
+    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    for i = 1:20
+        root = Box{2}(world)
+        x = randn(n); addpoint!(root, x, [(1,2), (3,4), (5,6), (7,8)], f)
+        x = randn(n); addpoint!(root, x, [(3,7), (4,8), (1,5), (2,6)], f)
+        x = randn(n); addpoint!(root, x, [(6,8), (1,3), (2,4), (5,7)], f)
+        x = randn(n); addpoint!(root, x, [(4,5), (1,6), (2,7), (3,8)], f)
+        box = minimum(root)
+        s = [split.dims for split in splits(box)]
+        @test length(s) == 16 && length(unique(s)) == 16
     end
 end
 

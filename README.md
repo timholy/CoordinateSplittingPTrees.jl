@@ -11,7 +11,7 @@ full-degree multidimensional polynomial interpolation. For example, in
 `n` dimensions, a quadratic polynomial has `(n+1)*(n+2)/2`
 coefficients; using traditional methods, solving the linear equations
 that determine the coefficients from the data is an `O(n^6)`
-operation, but a CS1-tree reduces that to ~`O(n^4)` and a CS2-tree
+operation, but a CS1-tree reduces that to `~O(n^4)` and a CS2-tree
 reduces it to `O(n^2)`.  Moreover, the resulting coefficients are
 determined with significantly higher precision than by traditional
 approaches.  CSp trees naturally implement adaptive mesh refinement
