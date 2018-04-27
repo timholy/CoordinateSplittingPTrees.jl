@@ -115,6 +115,7 @@ function position!(x, filled, box::Box)
         childindex = box.childindex
         for i = 1:degree(box)
             sd, xo = split.dims[i], split.xs[i]
+            sd > ndims(box) && continue  # fictive dimension
             if ((childindex >> (i-1))&0x01) != 0x00 && !filled[sd]
                 x[sd] = xo
                 filled[sd] = true
@@ -182,15 +183,17 @@ end
 function boxbounds!(bbs, lfilled, ufilled, box::Box)
     fill!(lfilled, false)
     fill!(ufilled, false)
-    for d = 1:ndims(box)
+    n = ndims(box)
+    for d = 1:n
         bbs[d] = (box.world.lower[d], box.world.upper[d])
     end
     box0 = box
     nlfilled = nufilled = 0
-    while !isroot(box) && min(nlfilled, nufilled) < ndims(box)
+    while !isroot(box) && min(nlfilled, nufilled) < n
         p = box.parent
         split = p.split
         for (sd, xo) = zip(split.dims, split.xs)
+            sd > n && continue   # fictive dimensions
             if !lfilled[sd] || !ufilled[sd]
                 xs = position(split.self, sd)
                 x = position(box0, sd)
@@ -219,13 +222,15 @@ the separation between `box` and its nearest neighbor along dimension
 `i`.
 """
 function boxscale(box::Box{p,T}) where {p,T}
-    scale = Vector{T}(uninitialized, ndims(box))
-    filled = falses(ndims(box))
+    n = ndims(box)
+    scale = Vector{T}(uninitialized, n)
+    filled = falses(n)
     nfilled = 0
-    while !isroot(box) && nfilled < ndims(box)
+    while !isroot(box) && nfilled < n
         box = box.parent
         split = box.split
         for (sd, x) in zip(split.dims, split.xs)
+            sd > n && continue   # fictive dimension
             if !filled[sd]
                 bb = boxbounds(box, sd)
                 if isfinite(bb[1]) && isfinite(bb[2])
@@ -374,7 +379,10 @@ Return the leaf-node `box` beneath `root` that contains `x`.
 """
 function find_leaf_at(root::Box, x)
     @noinline throwbb(bb, x, dim) = error("$x not within $bb along dimension $dim")
-    for i = 1:length(x)
+    @noinline throwdmm(n, l) = throw(DimensionMismatch("tree has $n dimensions, got $l"))
+    n = ndims(root)
+    length(x) == n || throwdmm(n, length(x))
+    for i = 1:n
         bb = boxbounds(root, i)
         ((bb[1] <= x[i]) && (x[i] < bb[2] || (x[i] == bb[2] && bb[2] == root.world.upper[i]))) || throwbb(bb, x[i], i)
     end
@@ -384,6 +392,7 @@ function find_leaf_at(root::Box, x)
         childidx = 0
         for j = 1:degree(root)
             sd, xother = split.dims[j], split.xs[j]
+            sd > n && continue
             xself = position(root, sd)
             xsd = x[sd]
             childidx |= (abs(xsd - xother) <= abs(xsd - xself)) << (j-1)

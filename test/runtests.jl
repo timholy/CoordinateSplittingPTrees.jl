@@ -1,5 +1,4 @@
 using CoordinateSplittingPTrees
-using CoordinateSplittingPTrees: addpoint!
 using Base.Test
 
 function collect_positions(root::Box{p,T}) where {p,T}
@@ -432,27 +431,32 @@ end
 @testset "Split iteration" begin
     f(x) = rand()
 
+    # Odd dimensionality for CSp with p even (fictive dimensions)
     n = 3
     world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
     root = Box{2}(world)
     x = ones(n)
-    box = addpoint!(root, x, [(1,2), (3,1)], f)
+    box = addpoint!(root, x, [(1,2), (3,)], f)
     x = [0.6, 2, 2]
-    box = addpoint!(root, x, [(1,2), (3,2)], f)
+    box = addpoint!(root, x, [(2,3), (1,)], f)
+    @test position(box) == [0.6,2,2]
+    @test boxbounds(box) == [(0.5, 0.8), (1.5,Inf), (1.5,Inf)]
+    @test CoordinateSplittingPTrees.boxscale(box) == [0.4,1,1]
+
     s = [split.dims for split in splits(box)]
-    @test s == [(3,2), (1,2), (3,1), (1,2)]
+    @test s == [(1,4), (2,3), (3,4), (1,2)]
     box = box.parent
     s = [split.dims for split in splits(box)]
-    @test s == [(3,2), (1,2), (3,1), (1,2)]
+    @test s == [(1,4), (2,3), (3,4), (1,2)]
     box = box.parent
     s = [split.dims for split in splits(box)]
-    @test s == [(1,2), (3,2), (3,1), (1,2)]
+    @test s == [(2,3), (1,4), (3,4), (1,2)]
     box = box.parent
     s = [split.dims for split in splits(box)]
-    @test s == [(3,1), (1,2), (3,2), (1,2)]
+    @test s == [(3,4), (2,3), (1,4), (1,2)]
     box = box.parent
     s = [split.dims for split in splits(box)]
-    @test s == [(1,2), (3,1), (1,2), (3,2)]
+    @test s == [(1,2), (3,4), (2,3), (1,4)]
 
     n = 6
     world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())

@@ -131,15 +131,23 @@ mutable struct Box{p,T,M,L}
             return new{p,T,M,L}(parent.world, parent, childindex)
         end
 
-        @noinline throw1(x, bb) = error("out-of-bounds evaluation $x (bounds are $bb)")
-        @noinline throw2(x, bb, u) = error("cannot split at the upper edge $x because the boxbounds $bb are not at the upper world edge $u")
+        @noinline throw0(sd, mxd) = error("got split along dimension $sd, max allowed is $mxd")
+        @noinline throw1(x, bb, sd) = error("out-of-bounds evaluation position $x along dimension $sd (bounds are $bb)")
+        @noinline throw2(x, bb, u, sd) = error("cannot split at the upper edge $x along dimension $sd because the boxbounds $bb are not at the upper world edge $u")
         @noinline throw3(x, sd) = error("position $x is identical to the parent along $sd")
 
         @assert(isleaf(parent))
+        # We allow fictive dimensions when needed to "round out"
+        # splits. For example, if n is odd but p = 2, we allow a
+        # dimension n+1 so that (n+1)/2 pairs can cover all dimensions.
+        n = ndims(parent)
+        maxdim = ceil(Int, n/p)*p
         for (splitdim,x) in zip(splitdims, xs)
+            0 < splitdim <= maxdim || throw0(splitdim, maxdim)
+            splitdim > n && continue
             bb = boxbounds(parent, splitdim)
             if (x < bb[1]) | (x > bb[2])
-                throw1(x, bb)
+                throw1(x, bb, splitdim)
             elseif x == bb[2] && bb[2] != (u = parent.world.upper[splitdim])
                 # To ensure that each point corresponds to a unique leaf
                 # (needed for proper behavior of `find_leaf_at`), we
@@ -150,7 +158,7 @@ mutable struct Box{p,T,M,L}
                 # shares this edge.) The only exception is for boxes that
                 # extend to the upper edge of the world bounds, for which
                 # the bounds are defined as the closed interval [lower, upper].
-                throw2(x, bb, u)
+                throw2(x, bb, u, splitdim)
             end
             x != position(parent, splitdim) || throw3(x, splitdim)
         end
@@ -189,6 +197,31 @@ Box(parent::Box{p,T,M,L}, splitdims::NTuple{p,Integer}, xs::NTuple{p,Real}, meta
 
 Box(parent::Box{1,T,M,1}, splitdim::Integer, x::Real, meta) where {T,M} =
     Box(parent, (splitdim,), (x,), (meta,))
+
+# You can supply fewer than p dimensions, in which case we fill in
+# with fictive dimensions
+function Box(parent::Box{p,T,M,L}, splitdims::NTuple{k,Integer}, xs::NTuple{k,Real}, metas) where {p,T,M,k,L}
+    0 < k <= p || throw(DimensionMismatch("got $k dimensions, max allowed is $p"))
+    nmeta = 2^k-1
+    length(metas) == nmeta || error("got $(length(metas)) metadatas for $k split dimensions, need $nmeta")
+    n = ndims(parent)
+    parentmeta = meta(parent)
+    local splitdimspad, xspad, metaspad
+    let n = n, nmeta = nmeta, parentmeta = parentmeta   # julia issue 15276
+        splitdimspad = ntuple(Val(p)) do d
+            d <= k ? Int(splitdims[d]) : n + d - k
+        end
+        xspad = ntuple(Val(p)) do d
+            d <= k ? T(xs[d]) : zero(T)
+        end
+        metaspad = ntuple(Val(L)) do d
+            i = d & nmeta
+            return i == 0 ? parentmeta : metas[i]
+        end
+    end
+    return Box{p,T,M,L}(parent, splitdimspad, xspad, metaspad)
+end
+
 
 isroot(box::Box) = box.parent == box
 isleaf(box::Box) = !isdefined(box, :split)
