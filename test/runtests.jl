@@ -1,88 +1,6 @@
 using CoordinateSplittingPTrees
 using Base.Test
-
-function collect_positions(root::Box{p,T}) where {p,T}
-    X = T[]
-    for leaf in leaves(root)
-        append!(X, position(leaf))
-    end
-    return reshape(X, ndims(root), length(X)÷ndims(root))
-end
-
-function collinear_dims(X, x0)
-    issame = X .== x0
-    nsame = sum(issame, 1)
-    n = length(x0)
-    nc = zeros(Int, n)
-    for k in Compat.axes(X, 2)
-        nsame[1,k] == n-1 || continue
-        i = findfirst(x->!x, view(issame, :, k))
-        nc[i] += 1
-    end
-    return nc
-end
-
-function collinear_dims(root::Box, box::Box)
-    collinear_dims(collect_positions(root), position(box))
-end
-
-donothing(args...) = nothing
-
-function generate_randboxes(::Type{B}, n, nboxes, callback=donothing) where B<:Box
-    function newx(box, sd)
-        bb = boxbounds(box, sd)
-        x = bb[1] + (bb[2]-bb[1])*rand()
-    end
-    nc = CoordinateSplittingPTrees.maxchildren(B)-1
-    lower = fill(0.0, n)
-    upper = fill(1.0, n)
-    splits = [(1/2,3/4) for i = 1:n]
-    world = World(lower, upper, splits, rand())
-    root = B(world)
-    lvs = collect(leaves(root))
-    while length(lvs) < nboxes
-        box = lvs[rand(1:length(lvs))]
-        sd = rand(1:n, degree(B))
-        while length(unique(sd)) < degree(B)
-            sd = rand(1:n, degree(B))
-        end
-        xs = ntuple(i->newx(box, sd[i]), degree(B))
-        newboxes = Box(box, (sd...,), xs, (rand(nc)...,))
-        callback(box, sd, xs, newboxes)
-        lvs = collect(leaves(root))
-    end
-    return root
-end
-
-# Store (position(box), boxbounds(box)) tuples for each box
-function record_geometry!(data, top, splitdims, xs, newboxes)
-    function bitlogical(i)
-        l = falses(length(splitdims))
-        l.chunks[1] = i
-        return l
-    end
-    b = position(top)
-    p = copy(b); p[splitdims] = [xs...]
-    bbs = boxbounds(top)
-    bbb, bbp = copy(bbs), copy(bbs)
-    for sd in splitdims
-        mid = (b[sd] + p[sd])/2
-        lower, upper = (bbb[sd][1], mid), (mid, bbp[sd][2])
-        bbb[sd] = b[sd] < p[sd] ? lower : upper
-        bbp[sd] = b[sd] < p[sd] ? upper : lower
-    end
-    data[getleaf(top)] = (b, bbb)
-    for i = 1:length(newboxes)
-        xbx = copy(b)
-        l = bitlogical(i)
-        sds = splitdims[l]
-        xbx[sds] = p[sds]
-        bbx = copy(bbb)
-        bbx[sds] = bbp[sds]
-        data[newboxes[i]] = (xbx, bbx)
-    end
-    return data
-end
+include("functions.jl")
 
 @testset "Geometry and iteration, CS1" begin
     # For comparing boxbounds
@@ -554,6 +472,64 @@ end
             end
             i -= 1
             box = box.parent
+        end
+    end
+end
+
+@testset "p-th order direct coefficients" begin
+    bprod(x, B::AbstractVector) = B'*x
+    bprod(x, B::AbstractMatrix) = x'*B*x/2
+    function bprod(x, B::AbstractArray{T,3}) where T
+        s = zero(T)
+        for I in CartesianRange(size(B))
+            p = oneunit(T)
+            for d in I.I
+                p *= x[d]
+            end
+            s += p*B[I]
+        end
+        return s/6
+    end
+
+    for p in (1, 2, 3)
+        for n in (6, 7)
+            x0 = zeros(n)
+            s0 = [(x,x+1) for x in x0]
+            world = World(fill(-Inf, n), fill(Inf, n), s0, 0.0)
+            sz = ntuple(d->n, p)
+            B = CoordinateSplittingPTrees.SymmetricArray(randn(sz))
+            f(x) = bprod(x, B)
+            root = Box{p}(world)
+            filled = CoordinateSplittingPTrees.SymmetricArray(falses(sz))
+            if p > 1
+                for I in CartesianRange(sz)
+                    if anydups(I.I)
+                        filled[I] = true
+                    end
+                end
+            end
+            # Generate splits
+            while !all(filled)
+                local pairings
+                while true
+                    pairings = dimpair(randperm(n), p)
+                    isnovel = true
+                    for pr in pairings
+                        length(pr) == p || continue
+                        isnovel = !filled[pr...]
+                    end
+                    isnovel && break
+                end
+                for pr in pairings
+                    length(pr) == p || break
+                    filled[pr...] = true
+                end
+                addpoint!(root, randn(n), pairings, f)
+            end
+            for box in leaves(root)
+                Cp = CoordinateSplittingPTrees.coefficients_p(box)
+                testequal_offdiag(Cp, B)
+            end
         end
     end
 end

@@ -96,3 +96,89 @@ function chaintop(box::Box{p}) where p
     end
     return top, nremaining == 0
 end
+
+"""
+    Cp = coefficients_p(box)
+
+When fitting a polynomial of degree `p = degree(box)` to the data
+around `box`, compute those highest-order coefficients that can be
+inferred directly via the `O(1)`-per-split algorithm. This computes
+elements of `Cp` that correspond to splits present in `box`'s tree.
+Any coefficients that can't be determined via the `O(1)` algorithm are
+filled with NaN.
+
+For a CS2 tree, `Cp` will store the off-diagonal elements of the
+Hessian. The diagonals (and any undetermined off-diagonals) will be
+NaN.
+"""
+function coefficients_p(box::Box{p,T}) where {p,T}
+    function bitsum(i)
+        s = Int(i & 0x01)
+        while i != 0
+            i = i >> 1
+            s += i & 0x01
+        end
+        return s
+    end
+    bitsign(i) = isodd(bitsum(i)) ? -1 : 1
+    n = ndims(box)
+    Cp = allocate_coefficients_p(n, box)
+    # Calculate the number of coefficients that could be set
+    nremaining = n
+    for i = 1:p-1
+        nremaining *= n-i
+    end
+    nremaining /= factorial(p)
+    # Iterate until we fill all coefficients or exhaust the tree
+    for split in splits(box)
+        dims = split.dims
+        maximum(dims) > n && continue
+        if isnan(Cp[dims...])
+            denom = oneunit(T)
+            for (d, x) in zip(split.dims, split.xs)
+                denom *= x - position(split.self, d)
+            end
+            s = isodd(p) ? -1 : 1
+            num = zero(T)
+            for ichild = 0:maxchildren(box)-1
+                num += (s * bitsign(ichild)) * value(getchild(split, ichild))
+            end
+            Cp[dims...] = num/denom
+            nremaining -= 1
+        end
+        nremaining <= 0 && break
+    end
+    return Cp
+end
+
+allocate_coefficients_p(n, box::Box{p,T}) where {p,T} =
+    SymmetricArray(fill(T(NaN), ntuple(d->n, Val(p))))
+
+
+## SymmetricArray
+
+# A "utility type" (not really core to this package) to make it easy
+# to work with higher-order polynomial models.
+struct SymmetricArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
+    data::A
+end
+SymmetricArray(A::AbstractArray{T,N}) where {T,N} =
+    SymmetricArray{T,N,typeof(A)}(A)
+
+Base.size(S::SymmetricArray) = size(S.data)
+
+function Base.getindex(S::SymmetricArray{T,N}, I::Vararg{Int,N}) where {T,N}
+    J = CoordinateSplittingPTrees.tuplesort(I)
+    return S.data[J...]
+end
+
+function Base.setindex!(S::SymmetricArray{T,N}, val, I::Vararg{Int,N}) where {T,N}
+    J = tuplesort(I)
+    S.data[J...] = val
+    return val
+end
+
+tuplesort(dims::Tuple{})        = dims
+tuplesort(dims::Tuple{Int})     = dims
+tuplesort(dims::Tuple{Int,Int}) = dims[1] > dims[2] ? (dims[2], dims[1]) : dims
+tuplesort(dims::NTuple{N,Int}) where N = (sort([dims...])...,)
