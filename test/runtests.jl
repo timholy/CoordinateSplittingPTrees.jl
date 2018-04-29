@@ -512,7 +512,50 @@ end
             @test CoordinateSplittingPTrees.ncollinear(leaf) == collinear_dims(X, position(leaf))
         end
     end
+end
 
+@testset "Chains" begin
+    # Cases with and without fictive dimensions
+    f(x) = rand()
+    for (n, dimlistss) in ((3, ([(1,2), (3,)],  [(3,1), (2,)])),
+                           (4, ([(1,2), (3,4)], [(3,1), (2,4)])),
+                           (4, ([(1,2), (3,4)], [(1,2), (3,4)])))
+        x0 = randn(n)
+        s0 = [(x,x+1) for x in x0]
+        world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+        root = box = Box{2}(world)
+        chaintops = typeof(root)[]
+        repeats = dimlistss[2] == dimlistss[1]
+        for dimlists in dimlistss
+            x = position(box) + 1
+            bx = box
+            box = addpoint!(box, x, dimlists, f)
+            for i = 1:ceil(Int, n/2)
+                push!(chaintops, bx)
+                if repeats
+                    # If the dimlists repeat, then any split box is
+                    # top of some chain
+                    bx = bx.split.others.children[end]
+                end
+            end
+        end
+        if repeats
+            chaintops[end] = chaintops[end].parent # need full chain
+        end
+        i = length(chaintops)
+        while !isroot(box)
+            top, success = CoordinateSplittingPTrees.chaintop(box)
+            @test success
+            @test top == chaintops[i]
+            for child in box.parent.split.others.children
+                top, success = CoordinateSplittingPTrees.chaintop(child)
+                @test success
+                @test top == chaintops[i]
+            end
+            i -= 1
+            box = box.parent
+        end
+    end
 end
 
 @testset "Display" begin

@@ -12,6 +12,7 @@ export leaves, splits, splitprint, splitprint_colored, print_tree
 
 include("types.jl")
 include("tree.jl")
+include("polynomials.jl")
 
 """
 CoordinateSplittingPTrees implements coordinate-splitting trees of
