@@ -534,6 +534,47 @@ end
     end
 end
 
+@testset "Choosing split dimensions" begin
+    f(x) = rand()
+    n = 3
+    x0 = randn(n)
+    s0 = [(x,x+1) for x in x0]
+    world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+    pairseq = []
+    root = Box{2}(world)
+    pairs = CoordinateSplittingPTrees.choose_dimensions(root)
+    @test pairs == [(1,2), (3,)]
+    push!(pairseq, pairs)
+    box = addpoint!(root, randn(n), pairs, f)
+    pairs = CoordinateSplittingPTrees.choose_dimensions(box)
+    push!(pairseq, pairs)
+    @test pairs[1] ∈ ((1,3), (2,3))
+    box = addpoint!(root, randpoint_inside(box), pairs, f)
+    pairs2 = CoordinateSplittingPTrees.choose_dimensions(box)
+    push!(pairseq, pairs2)
+    @test pairs2[1] ∈ ((1,3), (2,3))
+    @test pairs2[1] != pairs[1]
+    box = addpoint!(root, randpoint_inside(box), pairs2, f)
+    for i = 1:3
+        pairs = CoordinateSplittingPTrees.choose_dimensions(box)
+        @test pairs == pairseq[i]
+        box = addpoint!(root, randpoint_inside(box), pairs, f)
+    end
+
+    root = Box{2}(world)
+    pairs = CoordinateSplittingPTrees.choose_dimensions(root)
+    box = addpoint!(root, randn(n), pairs, f)
+    pairs = CoordinateSplittingPTrees.choose_dimensions(box)
+    boxd = addpoint!(root, randpoint_inside(box), pairs, f)
+    boxp = box.parent.split.others.children[2]
+    pairs2 = CoordinateSplittingPTrees.choose_dimensions(boxp)
+    @test pairs2[1] ∈ ((1,3), (2,3))
+    @test pairs2[1] != pairs[1]
+    boxpd = addpoint!(root, randpoint_inside(boxp), pairs2, f)
+    @test CoordinateSplittingPTrees.choose_dimensions(boxpd) == pairs
+    @test CoordinateSplittingPTrees.choose_dimensions(boxd) == pairs2
+end
+
 @testset "Display" begin
     io = IOBuffer()
     io2 = IOBuffer()

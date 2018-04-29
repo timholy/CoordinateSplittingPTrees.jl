@@ -3,6 +3,7 @@ __precompile__(true)
 module CoordinateSplittingPTrees
 
 using AbstractTrees  # for display of tree structures
+import BlossomV      # we use matching to select dimension-pairs (see cs2.jl)
 using Compat
 
 export Box, World
@@ -13,6 +14,7 @@ export leaves, splits, splitprint, splitprint_colored, print_tree
 include("types.jl")
 include("tree.jl")
 include("polynomials.jl")
+include("cs2.jl")
 
 """
 CoordinateSplittingPTrees implements coordinate-splitting trees of

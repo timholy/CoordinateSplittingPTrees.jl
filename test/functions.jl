@@ -102,3 +102,17 @@ function testequal_offdiag(Cp, B)
     end
     return nothing
 end
+
+function randpoint_inside(bb::Tuple{T,T}) where T<:Real
+    if isfinite(bb[1]) && isfinite(bb[2])
+        return bb[1] + (bb[2]-bb[1])*T(0.1+0.8*rand()) # avoid within 10% of edge
+    elseif isfinite(bb[1])
+        return T(bb[1] + 0.1 + rand())
+    elseif isfinite(bb[2])
+        return T(bb[2] - 0.1 - rand())
+    end
+    return T(rand())
+end
+
+
+randpoint_inside(box::Box) = [randpoint_inside(bb) for bb in boxbounds(box)]
