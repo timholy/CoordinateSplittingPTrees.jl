@@ -126,4 +126,20 @@ function addpoint!(box::Box, x, dimlists, metagen::Function)
     return box
 end
 
+"""
+    addpoint!(box::Box, x, metagen::Function)
+
+Create new evaluation points by splitting existing boxes. `x`, the
+final evaluation position, must be inside `box`, and typically `box`
+is the root node. Choice of splitting dimensions is automatic.
+
+`metagen(y)` must return the metadata to be associated with position `y`,
+where `y` is a vector.
+"""
+function addpoint!(root, x, metagen::Function)
+    leaf = find_leaf_at(root, x)
+    dimlists = choose_dimensions(leaf)
+    addpoint!(root, x, dimlists, metagen)
+end
+
 end # module

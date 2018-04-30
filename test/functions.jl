@@ -103,6 +103,13 @@ function testequal_offdiag(Cp, B)
     return nothing
 end
 
+function hasnan_offdiag(Cp)
+    for I in CartesianRange(size(Cp))
+        !anydups(I.I) && isnan(Cp[I]) && return true
+    end
+    return false
+end
+
 function randpoint_inside(bb::Tuple{T,T}) where T<:Real
     if isfinite(bb[1]) && isfinite(bb[2])
         return bb[1] + (bb[2]-bb[1])*T(0.1+0.8*rand()) # avoid within 10% of edge
@@ -114,5 +121,47 @@ function randpoint_inside(bb::Tuple{T,T}) where T<:Real
     return T(rand())
 end
 
-
 randpoint_inside(box::Box) = [randpoint_inside(bb) for bb in boxbounds(box)]
+
+
+function modelvalue(c, g, Q, b, y, prec, x)
+    n = length(x)
+    val = c + g'*(x - b)
+    for j = 1:n, i = j:n
+        coef = CoordinateSplittingPTrees.Qcoef_value(i, j, x, prec, b, y)
+        if coef != 0  # avoids using NaNs unless we need them
+            val += Q[i,j]*coef*(1 + (i!=j))  # off-diagonals are done once
+        end
+    end
+    return val
+end
+
+function modelvalue_chi(c, g, Q, b, y, prec, x)
+    n = length(x)
+    val = c + g'*(x - b)
+    for j = 1:n, i = 1:n
+        coef = (x[i] - b[i]) * (x[j] - chi(j, i, prec, b, y))/2
+        if coef != 0  # avoids using NaNs unless we need them
+            val += Q[i,j]*coef
+        end
+    end
+    return val
+end
+
+function checkfit(c, g, Q, b, y, prec, box::Box{2})
+    n = ndims(box)
+    box, success = CoordinateSplittingPTrees.chaintop(box)
+    success || error("no chain found at $box")
+    for i = 1:ceil(Int, n/2)
+        split = box.split
+        mv = modelvalue(c, g, Q, b, y, prec, position(split.self))
+        isnan(mv) || @assert(value(split.self) ≈ mv)
+        for ic = 1:3
+            bx = split.others.children[ic]
+            mv = modelvalue(c, g, Q, b, y, prec, position(bx))
+            isnan(mv) || @assert(value(bx) ≈ mv)
+        end
+        box = split.others.children[end]
+    end
+    return nothing
+end

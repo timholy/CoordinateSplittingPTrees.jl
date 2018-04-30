@@ -586,6 +586,108 @@ end
           CoordinateSplittingPTrees.choose_dimensions(boxd)  == [(1,2), (3,)]
 end
 
+@testset "Qcoef" begin
+    using CoordinateSplittingPTrees: Qcoef_value, Qcoef_lineq, chi
+    for n in (7, 8)
+        dims = randperm(n)
+        seen = falses(n)
+        prec = falses(n, n)
+        for i = 1:2:n
+            d1 = d2 = dims[i]
+            prec[:,d1] = seen
+            if i < n
+                d2 = dims[i+1]
+                prec[:,d2] = seen
+            end
+            seen[d1] = true
+            if i < n
+                seen[d2] = true
+            end
+        end
+        b = randn(n)
+        y = randn(n)
+        for i = 1:n  # ensure y is distinct from b in all coordinates
+            while y[i] == b[i]
+                y[i] = randn()
+            end
+        end
+        x = copy(b)
+        for i = 1:2:n
+            d1 = d2 = dims[i]
+            Δx1 = Δx2 = y[d1] - b[d1]
+            if i < n
+                d2 = dims[i+1]
+                Δx2 = y[d2] - b[d2]
+            end
+            for k = 1:n
+                (k == d1 || k == d2) && continue
+                @test Qcoef_lineq(d1, k, Δx1, x[k], prec[d1,k], b[k], y[k]) == 0
+                @test Qcoef_lineq(d2, k, Δx2, x[k], prec[d2,k], b[k], y[k]) == 0
+            end
+            x[d1] = y[d1]
+            if i < n
+                x[d2] = y[d2]
+            end
+            for k = 1:n
+                (k == d1 || k == d2) && continue
+                @test Qcoef_value(k, d1, x, prec, b, y) == 0
+                @test Qcoef_value(d1, k, x, prec, b, y) == 0
+                @test Qcoef_value(k, d2, x, prec, b, y) == 0
+                @test Qcoef_value(d2, k, x, prec, b, y) == 0
+                @test abs((x[d1] - b[d1]) * (x[k] - chi(k, d1, prec, b, y))/2 +
+                          (x[k] - b[k]) * (x[d1] - chi(d1, k, prec, b, y))/2) < 1e-12
+                @test abs((x[d2] - b[d2]) * (x[k] - chi(k, d2, prec, b, y))/2 +
+                          (x[k] - b[k]) * (x[d2] - chi(d2, k, prec, b, y))/2) < 1e-12
+            end
+            @test Qcoef_value(d1, d1, x, prec, b, y) == 0
+            @test Qcoef_value(d2, d2, x, prec, b, y) == 0
+            @test abs((x[d1] - b[d1]) * (x[d1] - chi(d1, d1, prec, b, y))/2 +
+                      (x[d1] - b[d1]) * (x[d1] - chi(d1, d1, prec, b, y))/2) < 1e-12
+            @test abs((x[d2] - b[d2]) * (x[d2] - chi(d2, d2, prec, b, y))/2 +
+                      (x[d2] - b[d2]) * (x[d2] - chi(d2, d2, prec, b, y))/2) < 1e-12
+            @test Qcoef_value(d1, d2, x, prec, b, y) ≈ (
+                (x[d1] - b[d1]) * (x[d2] - chi(d2, d1, prec, b, y))/4 +
+                (x[d2] - b[d2]) * (x[d1] - chi(d1, d2, prec, b, y))/4)
+        end
+        x = randn(n)
+        for j = 1:n, i = 1:n
+            @test Qcoef_value(i, j, x, prec, b, y) ≈ (
+                (x[i] - b[i]) * (x[j] - chi(j, i, prec, b, y))/4 +
+                (x[j] - b[j]) * (x[i] - chi(i, j, prec, b, y))/4)
+        end
+    end
+end
+
+@testset "CS2 full models" begin
+    for n = (2, 3, 7, 8)
+        B = CoordinateSplittingPTrees.SymmetricArray(randn(n, n))
+        f(x) = (x'*B*x)/2
+        x0 = randn(n)
+        s0 = [(x,x+1) for x in x0]
+        world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+        for iter = 1:10  # ensure a variety of splitting patterns
+            root = box = Box{2}(world)
+            while true
+                box = addpoint!(root, randn(n), f)
+                Cp = CoordinateSplittingPTrees.coefficients_p(box)
+                !hasnan_offdiag(Cp) && break
+            end
+            # One extra to make sure we can determine the diagonal components
+            box = addpoint!(root, randn(n), f)
+            c, g, Q, b, y, prec, firstmatch = CoordinateSplittingPTrees.fit_quadratic_native(box)
+            for leaf in leaves(root)
+                x = position(leaf)
+                @test modelvalue(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-8
+                @test modelvalue_chi(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-8
+            end
+            c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic(box)
+            @test Q ≈ B
+            @test g ≈ Q*b
+            x = position(box)
+            @test c + g'*(x - b) + (x-b)'*Q*(x-b)/2 ≈ f(x) rtol=1e-8
+            @test abs(c - g'*b + (b'*Q*b)/2) < 1e-8
+        end
+    end
 end
 
 @testset "Display" begin
