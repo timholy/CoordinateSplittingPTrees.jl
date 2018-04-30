@@ -536,6 +536,17 @@ end
 
 @testset "Choosing split dimensions" begin
     f(x) = rand()
+    n = 2
+    x0 = randn(n)
+    s0 = [(x,x+1) for x in x0]
+    world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+    root = Box{2}(world)
+    pairs = CoordinateSplittingPTrees.choose_dimensions(root)
+    @test pairs == [(1,2)]
+    box = addpoint!(root, randn(n), pairs, f)
+    pairs = CoordinateSplittingPTrees.choose_dimensions(box)
+    @test pairs == [(1,2)]
+
     n = 3
     x0 = randn(n)
     s0 = [(x,x+1) for x in x0]
@@ -571,8 +582,10 @@ end
     @test pairs2[1] ∈ ((1,3), (2,3))
     @test pairs2[1] != pairs[1]
     boxpd = addpoint!(root, randpoint_inside(boxp), pairs2, f)
-    @test CoordinateSplittingPTrees.choose_dimensions(boxpd) == pairs
-    @test CoordinateSplittingPTrees.choose_dimensions(boxd) == pairs2
+    @test CoordinateSplittingPTrees.choose_dimensions(boxpd) ==
+          CoordinateSplittingPTrees.choose_dimensions(boxd)  == [(1,2), (3,)]
+end
+
 end
 
 @testset "Display" begin

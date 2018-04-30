@@ -9,7 +9,7 @@ corresponding coefficients of the polynomial.
 function choose_dimensions(box::Box{2})
     pairs = Union{Tuple{Int,Int},Tuple{Int}}[]
     n = ndims(box)
-    if isroot(box) && isleaf(box)
+    if (isroot(box) && isleaf(box)) || n <= 2
         for i = 1:2:n
             if i < n
                 push!(pairs, (i, i+1))
@@ -25,32 +25,29 @@ function choose_dimensions(box::Box{2})
     # we then construct a maximal matching
     # (https://en.wikipedia.org/wiki/Matching_(graph_theory))
     neven = n + (isodd(n) ? 1 : 0)
-    Qflag = falses(neven, neven)
+    agesentinel = typemax(Int)            # this value signals "never seen"
+    age = fill(agesentinel, neven, neven) # recency of edge, younger is "worse"
     for i = 1:neven
-        Qflag[i,i] = true   # a dimension can't be paired with itself
+        age[i,i] = 0   # a dimension can't be paired with itself
     end
     nfilled = fill(1, neven)
+    agecounter = 1
     for split in splits(box)
         d1, d2 = split.dims
-        if !Qflag[d1, d2]
-            Qflag[d1, d2] = Qflag[d2, d1] = true
+        if age[d1, d2] == agesentinel
+            age[d1, d2] = age[d2, d1] = agecounter
             nfilled[d1] += 1
             nfilled[d2] += 1
         end
-        any(nfilled .>= neven-1) && break
+        agecounter += 1
+        all(nfilled .>= neven-1) && break
     end
-    # Build a graph where the edges are the missing entries in Qflag
-    # and solve the matching problem
-    pairgraph = BlossomV.Matching(n + isodd(n)) # BlossomV requires even # nodes
+    # Build the weighted graph and solve the matching problem
+    pairgraph = BlossomV.Matching(neven)
     for j = 1:neven, i = 1:j-1
-        if !Qflag[i,j]
-            BlossomV.add_edge(pairgraph, i-1, j-1, 1)
-        end
-    end
-    if neven > n && !any(@views Qflag[:,end])
-        # if necessary add an edge from every real node to fictitious node
-        for i = 1:n
-            BlossomV.add_edge(pairgraph, i-1, n, 2)
+        if age[i,j] > 0
+            cost = agecounter - min(age[i,j], agecounter) # older has lower cost
+            BlossomV.add_edge(pairgraph, i-1, j-1, cost)
         end
     end
     BlossomV.solve(pairgraph)
