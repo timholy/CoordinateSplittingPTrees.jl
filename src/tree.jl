@@ -75,7 +75,7 @@ Base.position(box::Box{p,T}) where {p,T} = position!(Vector{T}(uninitialized, nd
 Return the position of `box` in dimension `d`.
 """
 function Base.position(box::Box, d::Integer)
-    default = box.world.splits[d][1]
+    default = baseposition(box.world.position[d])
     while !isroot(box)
         p = box.parent
         childindex = box.childindex
@@ -104,7 +104,7 @@ function position!(x, filled, box::Box)
     @assert(linearindices(x) == linearindices(filled) == Base.OneTo(N))
     # Fill in default values (those corresponding to root)
     for i = 1:N
-        x[i] = box.world.splits[i][1]
+        x[i] = baseposition(box.world.position[i])
     end
     # Traverse the tree to see which entries have changed since root
     fill!(filled, false)
@@ -212,46 +212,6 @@ function boxbounds!(bbs, lfilled, ufilled, box::Box)
         box = p
     end
     bbs
-end
-
-"""
-    scale = boxscale(box)
-
-`scale[i]` is the length of `box` along dimension `i`, if finite, or
-the separation between `box` and its nearest neighbor along dimension
-`i`.
-"""
-function boxscale(box::Box{p,T}) where {p,T}
-    n = ndims(box)
-    scale = Vector{T}(uninitialized, n)
-    filled = falses(n)
-    nfilled = 0
-    while !isroot(box) && nfilled < n
-        box = box.parent
-        split = box.split
-        for (sd, x) in zip(split.dims, split.xs)
-            sd > n && continue   # fictive dimension
-            if !filled[sd]
-                bb = boxbounds(box, sd)
-                if isfinite(bb[1]) && isfinite(bb[2])
-                    scale[sd] = bb[2] - bb[1]
-                else
-                    scale[sd] = abs(position(box.split.self, sd) - x)
-                end
-                filled[sd] = true
-                nfilled += 1
-            end
-        end
-    end
-    if nfilled < ndims(box)
-        for i = 1:ndims(box)
-            if !filled[i]
-                s = box.world.splits[i]
-                scale[i] = abs(s[2] - s[1])
-            end
-        end
-    end
-    return scale
 end
 
 """

@@ -33,8 +33,8 @@ function generate_randboxes(::Type{B}, n, nboxes, callback=donothing) where B<:B
     nc = CoordinateSplittingPTrees.maxchildren(B)-1
     lower = fill(0.0, n)
     upper = fill(1.0, n)
-    splits = [(1/2,3/4) for i = 1:n]
-    world = World(lower, upper, splits, rand())
+    pos = fill(1/2, n)
+    world = World(lower, upper, pos, rand())
     root = B(world)
     lvs = collect(leaves(root))
     while length(lvs) < nboxes

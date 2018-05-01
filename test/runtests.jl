@@ -2,13 +2,37 @@ using CoordinateSplittingPTrees
 using Base.Test
 include("functions.jl")
 
+struct DummyMeta
+    val::Float64
+end
+
+@testset "World" begin
+    world = @inferred(World([0], [1], [0], 10))
+    @test eltype(world.lower) == Float64
+    world = @inferred(World([0.0], [1], [0], 10))
+    @test eltype(world.lower) == Float64
+    world = @inferred(World(zeros(5), ones(5), rand(5), 10))
+    @test eltype(world.lower) == Float64
+    @test_throws ArgumentError World(zeros(2), ones(2), [7.0,0.5], 0)
+    world = @inferred(World(zeros(2), [Inf,1], [7.0,0.5], 0))
+    @test CoordinateSplittingPTrees.baseposition(world) == [7.0, 0.5]
+
+    # Behavior reserved for use by QuadSplit (2-tuple splits)
+    world = @inferred(World(zeros(3), fill(3, 3), fill((1,2), 3), DummyMeta(0)))
+    @test eltype(world.lower) == Float64
+    @test CoordinateSplittingPTrees.baseposition(world) == ones(3)
+    world = World(zeros(3), fill(3, 3), fill((2,1), 3), DummyMeta(0))
+    @test CoordinateSplittingPTrees.baseposition(world) == fill(2, 3)
+    @test_throws ArgumentError World(zeros(3), fill(3, 3), fill((1,1), 3), DummyMeta(0))
+end
+
 @testset "Geometry and iteration, CS1" begin
     # For comparing boxbounds
     myapproxeq(t1::Tuple{Real,Real}, t2::Tuple{Real,Real}) = t1[1] ≈ t2[1] && t1[2] ≈ t2[2]
     myapproxeq(v1::Vector, v2::Vector) = all(myapproxeq.(v1, v2))
 
     # 1-d
-    world = World([0], [1], [(0,1)], 10)
+    world = World([0], [1], [0], 10)
     @test eltype(world.lower) == Float64
     root = @inferred(Box{1}(world))
     @test_throws ErrorException Box(root, 1, -0.5, 20)  # out-of-bounds
@@ -22,7 +46,6 @@ include("functions.jl")
     @test @inferred(boxbounds(box)) == [(0.5,1)]
     @test @inferred(boxbounds(box, 1)) == (0.5,1)
     @test_throws BoundsError boxbounds(box, 2)
-    @test CoordinateSplittingPTrees.boxscale(box) == [1]
     @test CoordinateSplittingPTrees.epswidth(boxbounds(box, 1)) == eps()
     @test CoordinateSplittingPTrees.epswidth(boxbounds(getleaf(root), 1)) == eps(0.5)
     # evaluation point is at the boundary of parents
@@ -48,12 +71,11 @@ include("functions.jl")
     @test length(root) == 5
     @test length(leaves(root)) == 3
 
-    world = World([0], [Inf], [(0,1)], 10) # with infinite size
+    world = World([0], [Inf], [0], 10) # with infinite size
     root = Box{1}(world)
     box = Box(root, 1, 1, 20)[1]
     @test boxbounds(box) == [(0.5,Inf)]
     @test boxbounds(box, 1) == (0.5,Inf)
-    @test CoordinateSplittingPTrees.boxscale(box) == [1]
     @test CoordinateSplittingPTrees.epswidth(boxbounds(box, 1)) == eps(0.5)
     @test CoordinateSplittingPTrees.epswidth(boxbounds(getleaf(root), 1)) == eps(0.5)
 
@@ -66,7 +88,7 @@ include("functions.jl")
     end
 
     # 2-d
-    world = World([0,-Inf], [Inf,Inf], [(1,2), (1,2)], nothing)
+    world = World([0,-Inf], [Inf,Inf], [1,1], nothing)
     root = @inferred(Box{1}(world))
     box1 = @inferred(Box(root, 1, 2, nothing))[1]
     box2 = Box(getleaf(root), 2, 2, nothing)[1]
@@ -162,7 +184,7 @@ end
     myapproxeq(v1::Vector, v2::Vector) = all(myapproxeq.(v1, v2))
 
     # 2-d
-    world = World([0,-Inf], [Inf,Inf], [(1,2), (1,2)], nothing)
+    world = World([0,-Inf], [Inf,Inf], [1,1], nothing)
     root = @inferred(Box{2}(world))
     boxes1 = @inferred(Box(root, (1,2), (2,2), (nothing, nothing, nothing)))
 
@@ -190,7 +212,7 @@ end
     @test boxbounds(b) == [(1.5,Inf), (-Inf,1.5)]
 
     # 4-d
-    world = World([0,-Inf,-5,-Inf], [Inf,Inf,50,20], fill((1,2), 4), 1)
+    world = World([0,-Inf,-5,-Inf], [Inf,Inf,50,20], fill(1, 4), 1)
     root = Box{2}(world)
     @test length(root) == 1
     @test length(leaves(root)) == 1
@@ -351,7 +373,7 @@ end
 
     # Odd dimensionality for CSp with p even (fictive dimensions)
     n = 3
-    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    world = World(fill(-Inf, n), fill(Inf, n), fill(0, n), rand())
     root = Box{2}(world)
     x = ones(n)
     box = addpoint!(root, x, [(1,2), (3,)], f)
@@ -359,7 +381,6 @@ end
     box = addpoint!(root, x, [(2,3), (1,)], f)
     @test position(box) == [0.6,2,2]
     @test boxbounds(box) == [(0.5, 0.8), (1.5,Inf), (1.5,Inf)]
-    @test CoordinateSplittingPTrees.boxscale(box) == [0.4,1,1]
 
     s = [split.dims for split in splits(box)]
     @test s == [(1,4), (2,3), (3,4), (1,2)]
@@ -377,7 +398,7 @@ end
     @test s == [(1,2), (3,4), (2,3), (1,4)]
 
     n = 6
-    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    world = World(fill(-Inf, n), fill(Inf, n), fill(0, n), rand())
     root = Box{2}(world)
     x = ones(n); addpoint!(root, x, [(1,2), (3,4), (5,6)], f)
     x = [0.8; 0.8; 0.8; 0.2; 0.2; 0.2]; addpoint!(root, x, [(1,3), (2,5), (4,6)], f)
@@ -401,7 +422,7 @@ end
     @test s == [(1,2), (1,5), (3,6), (2,4), (3,4), (1,3), (2,5), (4,6), (5,6)]
 
     n = 8
-    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    world = World(fill(-Inf, n), fill(Inf, n), fill(0, n), rand())
     for i = 1:20
         root = Box{2}(world)
         x = randn(n); addpoint!(root, x, [(1,2), (3,4), (5,6), (7,8)], f)
@@ -439,8 +460,7 @@ end
                            (4, ([(1,2), (3,4)], [(3,1), (2,4)])),
                            (4, ([(1,2), (3,4)], [(1,2), (3,4)])))
         x0 = randn(n)
-        s0 = [(x,x+1) for x in x0]
-        world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+        world = World(fill(-Inf, n), fill(Inf, n), x0, f(x0))
         root = box = Box{2}(world)
         chaintops = typeof(root)[]
         repeats = dimlistss[2] == dimlistss[1]
@@ -494,8 +514,7 @@ end
     for p in (1, 2, 3)
         for n in (6, 7)
             x0 = zeros(n)
-            s0 = [(x,x+1) for x in x0]
-            world = World(fill(-Inf, n), fill(Inf, n), s0, 0.0)
+            world = World(fill(-Inf, n), fill(Inf, n), x0, 0.0)
             sz = ntuple(d->n, p)
             B = CoordinateSplittingPTrees.SymmetricArray(randn(sz))
             f(x) = bprod(x, B)
@@ -538,8 +557,7 @@ end
     f(x) = rand()
     n = 2
     x0 = randn(n)
-    s0 = [(x,x+1) for x in x0]
-    world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+    world = World(fill(-Inf, n), fill(Inf, n), x0, f(x0))
     root = Box{2}(world)
     pairs = CoordinateSplittingPTrees.choose_dimensions(root)
     @test pairs == [(1,2)]
@@ -549,8 +567,7 @@ end
 
     n = 3
     x0 = randn(n)
-    s0 = [(x,x+1) for x in x0]
-    world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+    world = World(fill(-Inf, n), fill(Inf, n), x0, f(x0))
     pairseq = []
     root = Box{2}(world)
     pairs = CoordinateSplittingPTrees.choose_dimensions(root)
@@ -663,8 +680,7 @@ end
         B = CoordinateSplittingPTrees.SymmetricArray(randn(n, n))
         f(x) = (x'*B*x)/2
         x0 = randn(n)
-        s0 = [(x,x+1) for x in x0]
-        world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+        world = World(fill(-Inf, n), fill(Inf, n), x0, f(x0))
         for iter = 1:10  # ensure a variety of splitting patterns
             root = box = Box{2}(world)
             while true
@@ -694,7 +710,7 @@ end
     io = IOBuffer()
     io2 = IOBuffer()
     # CS1, 1-d
-    world = World([0], [1], [(0,1)], 10)
+    world = World([0], [1], [0], 10)
     root = Box{1}(world)
     box = Box(root, 1, 1, 20)[1]
     box1 = Box(box, 1, 0.5, 30)[1]
@@ -718,7 +734,7 @@ end
 """
 
     # CS1, 2-d
-    world = World([0,-Inf], [Inf,Inf], [(1,2), (1,2)], 'A')
+    world = World([0,-Inf], [Inf,Inf], [1,1], 'A')
     root = Box{1}(world)
     box1 = Box(root, 1, 2, 'B')[1]
     box2 = Box(getleaf(root), 2, 2, 'C')[1]
@@ -732,7 +748,7 @@ end
 """
 
     # CS2, 3-d
-    world = World(fill(-Inf,3), fill(Inf,3), fill((1,2), 3), 100)
+    world = World(fill(-Inf,3), fill(Inf,3), fill(1, 3), 100)
     root = Box{2}(world)
     boxes1 = Box(root, (1,2), (10,20), (200,300,400))
     boxes2 = Box(boxes1[2], (3,1), (-10,3.5), (500,600,700))
