@@ -621,8 +621,8 @@ end
             end
             for k = 1:n
                 (k == d1 || k == d2) && continue
-                @test Qcoef_lineq(d1, k, Δx1, x[k], prec[d1,k], b[k], y[k]) == 0
-                @test Qcoef_lineq(d2, k, Δx2, x[k], prec[d2,k], b[k], y[k]) == 0
+                @test Qcoef_lineq(d1, k, Δx1, x[k], b[k], y[k], prec[d1,k]) == 0
+                @test Qcoef_lineq(d2, k, Δx2, x[k], b[k], y[k], prec[d2,k]) == 0
             end
             x[d1] = y[d1]
             if i < n
@@ -630,30 +630,30 @@ end
             end
             for k = 1:n
                 (k == d1 || k == d2) && continue
-                @test Qcoef_value(k, d1, x, prec, b, y) == 0
-                @test Qcoef_value(d1, k, x, prec, b, y) == 0
-                @test Qcoef_value(k, d2, x, prec, b, y) == 0
-                @test Qcoef_value(d2, k, x, prec, b, y) == 0
-                @test abs((x[d1] - b[d1]) * (x[k] - chi(k, d1, prec, b, y))/2 +
-                          (x[k] - b[k]) * (x[d1] - chi(d1, k, prec, b, y))/2) < 1e-12
-                @test abs((x[d2] - b[d2]) * (x[k] - chi(k, d2, prec, b, y))/2 +
-                          (x[k] - b[k]) * (x[d2] - chi(d2, k, prec, b, y))/2) < 1e-12
+                @test Qcoef_value(k, d1, x, b, y, prec) == 0
+                @test Qcoef_value(d1, k, x, b, y, prec) == 0
+                @test Qcoef_value(k, d2, x, b, y, prec) == 0
+                @test Qcoef_value(d2, k, x, b, y, prec) == 0
+                @test abs((x[d1] - b[d1]) * (x[k] - chi(k, d1, b, y, prec))/2 +
+                          (x[k] - b[k]) * (x[d1] - chi(d1, k, b, y, prec))/2) < 1e-12
+                @test abs((x[d2] - b[d2]) * (x[k] - chi(k, d2, b, y, prec))/2 +
+                          (x[k] - b[k]) * (x[d2] - chi(d2, k, b, y, prec))/2) < 1e-12
             end
-            @test Qcoef_value(d1, d1, x, prec, b, y) == 0
-            @test Qcoef_value(d2, d2, x, prec, b, y) == 0
-            @test abs((x[d1] - b[d1]) * (x[d1] - chi(d1, d1, prec, b, y))/2 +
-                      (x[d1] - b[d1]) * (x[d1] - chi(d1, d1, prec, b, y))/2) < 1e-12
-            @test abs((x[d2] - b[d2]) * (x[d2] - chi(d2, d2, prec, b, y))/2 +
-                      (x[d2] - b[d2]) * (x[d2] - chi(d2, d2, prec, b, y))/2) < 1e-12
-            @test Qcoef_value(d1, d2, x, prec, b, y) ≈ (
-                (x[d1] - b[d1]) * (x[d2] - chi(d2, d1, prec, b, y))/4 +
-                (x[d2] - b[d2]) * (x[d1] - chi(d1, d2, prec, b, y))/4)
+            @test Qcoef_value(d1, d1, x, b, y, prec) == 0
+            @test Qcoef_value(d2, d2, x, b, y, prec) == 0
+            @test abs((x[d1] - b[d1]) * (x[d1] - chi(d1, d1, b, y, prec))/2 +
+                      (x[d1] - b[d1]) * (x[d1] - chi(d1, d1, b, y, prec))/2) < 1e-12
+            @test abs((x[d2] - b[d2]) * (x[d2] - chi(d2, d2, b, y, prec))/2 +
+                      (x[d2] - b[d2]) * (x[d2] - chi(d2, d2, b, y, prec))/2) < 1e-12
+            @test Qcoef_value(d1, d2, x, b, y, prec) ≈ (
+                (x[d1] - b[d1]) * (x[d2] - chi(d2, d1, b, y, prec))/4 +
+                (x[d2] - b[d2]) * (x[d1] - chi(d1, d2, b, y, prec))/4)
         end
         x = randn(n)
         for j = 1:n, i = 1:n
-            @test Qcoef_value(i, j, x, prec, b, y) ≈ (
-                (x[i] - b[i]) * (x[j] - chi(j, i, prec, b, y))/4 +
-                (x[j] - b[j]) * (x[i] - chi(i, j, prec, b, y))/4)
+            @test Qcoef_value(i, j, x, b, y, prec) ≈ (
+                (x[i] - b[i]) * (x[j] - chi(j, i, b, y, prec))/4 +
+                (x[j] - b[j]) * (x[i] - chi(i, j, b, y, prec))/4)
         end
     end
 end

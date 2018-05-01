@@ -117,7 +117,7 @@ end
 
 Return the CS2-native quadratic model in canonical form,
 
-    m(x) = c + g'*Δx + (Δx'*Q*Δx)/2
+    m(x) = c + gc'*Δx + (Δx'*Q*Δx)/2
 
 where `Δx = x - b`.
 """
@@ -125,7 +125,7 @@ function canonicalize(c, g, Q, b, y, prec)
     gc = copy(g)
     n = length(g)
     for j = 1:n, i = 1:n
-        χ = chi(j, i, prec, b, y)
+        χ = chi(j, i, b, y, prec)
         gc[i] += (b[j] - χ)*Q[i,j]/2
     end
     return c, gc, Q, b
@@ -182,11 +182,11 @@ function fit_poly2_diag!(Q, box::Box{2}, c, g, b, y, prec)
     function diag_equation(d, xnew, g, Q, x, b, y, prec)
         n = length(x)
         xd = x[d]
-        coef = Qcoef_lineq(d, d, xnew-xd, xd, prec[d,d], b[d], y[d])
+        coef = Qcoef_lineq(d, d, xnew-xd, xd, b[d], y[d], prec[d,d])
         consts = -g
         for k = 1:n
             k == d && continue  # already in coef
-            xc = Qcoef_lineq(d, k, xnew-xd, x[k], prec[d,k], b[k], y[k])
+            xc = Qcoef_lineq(d, k, xnew-xd, x[k], b[k], y[k], prec[d,k])
             consts -= Q[d,k] * xc
         end
         return coef, consts
@@ -242,18 +242,18 @@ function fit_poly2_diag!(Q, box::Box{2}, c, g, b, y, prec)
     return Q
 end
 
-function chi(j, i, prec, b, y)
+function chi(j, i, b, y, prec)
     i == j && return y[j]
     return prec[i,j] ? b[j] : 2*y[j]-b[j]
 end
 
-function chi(prec, b, y)
+function chi(b, y, prec)
     n = length(b)
-    return [chi(j, i, prec, b, y) for j=1:n, i=1:n]
+    return [chi(j, i, b, y, prec) for j=1:n, i=1:n]
 end
 
 """
-    coef = Qcoef_value(i, j, x, prec, b, y)
+    coef = Qcoef_value(i, j, x, b, y, prec)
 
 Compute the symmetrized coefficient of `Q[i,j]` in the model value
 expression.  The native expression is shown in the the help for
@@ -267,7 +267,7 @@ which is the mean of the coefficients for `Q[i,j]` and `Q[j,i]`. In
 particular, it returns exactly 0 if the two should (analytically,
 i.e. to infinite precision) cancel one another.
 """
-function Qcoef_value(i, j, x, prec, b, y)
+function Qcoef_value(i, j, x, b, y, prec)
     i == j && return (x[i]-b[i])*(x[i]-y[i])/2
     bi, bj = b[i], b[j]
     yi, yj = y[i], y[j]
@@ -279,7 +279,7 @@ function Qcoef_value(i, j, x, prec, b, y)
     return ((xi - bi)*(xj - χji) + (xj - bj)*(xi - χij))/4
 end
 
-function Qcoef_lineq(i, k, Δxi, xk::Real, precik::Bool, bk::Real, yk::Real)
+function Qcoef_lineq(i, k, Δxi, xk::Real, bk::Real, yk::Real, precik::Bool)
     coef = zero(xk)
     if i == k
         (xk == bk && Δxi == yk-bk) || (xk == yk && Δxi == bk-yk) && return coef
