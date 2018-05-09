@@ -111,7 +111,7 @@ For a CS2 tree, `Cp` will store the off-diagonal elements of the
 Hessian. The diagonals (and any undetermined off-diagonals) will be
 NaN.
 """
-function coefficients_p(box::Box{p,T}) where {p,T}
+function coefficients_p(f::Function, box::Box{p,T}) where {p,T}
     function bitsum(i)
         s = Int(i & 0x01)
         while i != 0
@@ -123,12 +123,11 @@ function coefficients_p(box::Box{p,T}) where {p,T}
     bitsign(i) = isodd(bitsum(i)) ? -1 : 1
     n = ndims(box)
     Cp = allocate_coefficients_p(n, box)
-    # Calculate the number of coefficients that could be set
+    # Calculate the number of coefficients that could be set (n choose p)
     nremaining = n
     for i = 1:p-1
-        nremaining *= n-i
+        nremaining *= (n-i)/(i+1)
     end
-    nremaining /= factorial(p)
     # Iterate until we fill all coefficients or exhaust the tree
     for split in splits(box)
         dims = split.dims
@@ -141,7 +140,7 @@ function coefficients_p(box::Box{p,T}) where {p,T}
             s = isodd(p) ? -1 : 1
             num = zero(T)
             for ichild = 0:maxchildren(box)-1
-                num += (s * bitsign(ichild)) * value(getchild(split, ichild))
+                num += (s * bitsign(ichild)) * f(getchild(split, ichild))
             end
             Cp[dims...] = num/denom
             nremaining -= 1
@@ -150,6 +149,7 @@ function coefficients_p(box::Box{p,T}) where {p,T}
     end
     return Cp
 end
+coefficients_p(box::Box{p,T}) where {p,T} = coefficients_p(value, box)
 
 allocate_coefficients_p(n, box::Box{p,T}) where {p,T} =
     SymmetricArray(fill(T(NaN), ntuple(d->n, Val(p))))
