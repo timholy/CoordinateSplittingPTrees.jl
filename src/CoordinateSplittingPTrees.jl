@@ -142,4 +142,80 @@ function addpoint!(root, x, metagen::Function)
     addpoint!(root, x, dimlists, metagen)
 end
 
+"""
+    addpoint_distinct!(box::Box, x, metagen::Function)
+
+Create new evaluation points by splitting existing boxes. `x` is the
+desired evaluation point; however, for any `x[i]` that are identical
+to the existing target `leaf = find_leaf_at(root, x)`, a new value is
+chosen using `partition_interval`.
+
+See [`addpoint!`](@ref) for additional information.
+"""
+function addpoint_distinct!(root, x, metagen::Function)
+    xcopy = copy(x)
+    leaf = find_leaf_at(root, x)
+    xleaf = position(leaf)
+    for i = 1:ndims(root)
+        if x[i] == xleaf[i]
+            xcopy[i] = partition_interval(x[i], leaf, i)
+        end
+    end
+    addpoint!(root, xcopy, metagen)
+end
+
+"""
+    y = partition_interval(x::Real, box, splitdim)
+
+Along dimension `splitdim`, split the largest interval between the
+evaluation point `x` and the edges, so that the gap between points and
+edges is cut to one-third of the original (thus making all "new"
+intervals equal in size):
+
+```
+old: |                 x  |
+new: |     y     |     x  |
+```
+
+When the largest interval is infinite, there are two cases:
+
+- if both edges are infinitely far away, an arbitrary point is
+  generated (or select a distinct value of `world.position[splitdim]`,
+  if it was initialized with a 2-tuple)
+- if only one interval has infinite extent, the gap between the points
+  and the new dividing edge doubles that of the interval on the
+  opposite side:
+
+```
+old: |     x
+new: |     x          |          y
+```
+"""
+function partition_interval(x::Real, box::Box, splitdim)
+    bb = boxbounds(box, splitdim)
+    if isfinite(bb[1]) && isfinite(bb[2])
+        if bb[2] - x > x - bb[1]
+            return (2*bb[2] + x)/3
+        else
+            return (x + 2*bb[1])/3
+        end
+    elseif isfinite(bb[2])
+        return x - 4*(bb[2]-x)
+    elseif isfinite(bb[1])
+        return x + 4*(x-bb[1])
+    end
+    w = box.world
+    return world_newposition(x, w.position[splitdim], w.lower[splitdim], w.upper[splitdim])
+end
+
+function nanzero!(A::AbstractArray)
+    z = zero(eltype(A))
+    for I in eachindex(A)
+        if isnan(A[I])
+            A[I] = z
+        end
+    end
+    return A
+end
+
 end # module

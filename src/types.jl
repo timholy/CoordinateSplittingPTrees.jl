@@ -56,6 +56,8 @@ end
 #  - `world_ofeltype(T, position[i])` must convert to world_eltype `T`
 #  - `world_validate(position[i], lower[i], upper[i])` should throw an
 #    error if `position[i]` is invalid, and otherwise return `nothing`.
+#  - `world_newposition(x, position[i], lower[i], upper[i])` should
+#    return a valid location different from `x`.
 
 baseposition(x::Real) = x
 baseposition(position::AbstractVector{<:Real}) = position
@@ -66,6 +68,13 @@ world_ofeltype(::Type{T}, x::Real) where T<:Real = T(x)
 function world_validate(x::Real, l::Real, u::Real)
     l <= x <= u || throw(ArgumentError("position $x is not within bounds [$l, $u]"))
     return nothing
+end
+function world_newposition(x, s::Real, l::Real, u::Real)
+    if x != s
+        return s
+    end
+    return x + 1 < u ? x + 1 :
+           x - 1 >= l ? x - 1 : error("no valid value found. Consider using `partition_interval` to find a new point.")
 end
 
 # We're also going to "reserve" the behavior of World when position[i]
@@ -87,6 +96,9 @@ function world_validate(s::Tuple{Real,Real}, l::Real, u::Real)
     l <= s[2] <= u || throw(ArgumentError("position $(s[2]) is not within bounds [$l, $u]"))
     return nothing
 end
+
+world_newposition(x, s::Tuple{Real,Real}, l::Real, u::Real) = x == s[1] ? s[2] : s[1]
+
 
 function World(lower::AbstractVector{T}, upper::AbstractVector{T}, splits::AbstractVector{Tuple{T,T}}, meta) where T<:Real
     Tb = boxcoordtype(T)

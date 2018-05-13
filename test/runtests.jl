@@ -24,6 +24,12 @@ end
     world = World(zeros(3), fill(3, 3), fill((2,1), 3), DummyMeta(0))
     @test CoordinateSplittingPTrees.baseposition(world) == fill(2, 3)
     @test_throws ArgumentError World(zeros(3), fill(3, 3), fill((1,1), 3), DummyMeta(0))
+
+    world = World(fill(-Inf, 3), fill(Inf, 3), fill((1,2.5), 3), 0)
+    root = Box{2}(world)
+    @test position(root) == ones(3)
+    box = CoordinateSplittingPTrees.addpoint_distinct!(root, [5,1.0,3], x->0)
+    @test position(box) == [5,2.5,3]
 end
 
 @testset "Geometry and iteration, CS1" begin
