@@ -282,6 +282,7 @@ boxcoordtype(box::Box) = boxcoordtype(typeof(box))
 maxchildren(::Type{Box{p,T,M,L,P}}) where {p,T,M,L,P} = L+1
 maxchildren(::Type{B}) where B<:Box{p} where p = 1<<p  # for partial type like Box{2}
 maxchildren(box::Box) = maxchildren(typeof(box))
+isnonleaf(box) = !isleaf(box)
 
 function Base.show(io::IO, box::Box)
     print(io, "Box")
@@ -309,6 +310,7 @@ function Base.next(iter::ChildrenIterator, s::Int)
     item = s == 0 ? split.self : split.others.children[s]
     return (item, s+=1)
 end
+Base.length(iter::ChildrenIterator) = maxchildren(iter.box)
 
 AbstractTrees.printnode(io::IO, box::Box) = isleaf(box) ? print(io, box) : print(io, box.split.dims)
 
@@ -319,6 +321,11 @@ AbstractTrees.printnode(io::IO, box::Box) = isleaf(box) ? print(io, box) : print
 
 Base.iteratorsize(::Type{<:Box}) = Base.SizeUnknown()
 
+# Iterator API: support boxtype and getbox
+boxtype(::Type{B}) where B<:Box = B
+getbox(box::Box) = box
+
+# state type for most iterators
 struct VisitorState{B<:Box}
     box::B
     childindex::Int
@@ -328,16 +335,6 @@ abstract type CSpTreeIterator end
 
 Base.iteratorsize(::Type{<:CSpTreeIterator}) = Base.SizeUnknown()
 
-struct LeafIterator{B<:Box} <: CSpTreeIterator
-    root::B
-end
-Base.eltype(::Type{LeafIterator{B}}) where B<:Box = B
-
-struct NonleafIterator{B<:Box} <: CSpTreeIterator
-    root::B
-end
-Base.eltype(::Type{NonleafIterator{B}}) where B<:Box = B
-
 struct SplitIterator{B<:Box} <: CSpTreeIterator
     base::B
 end
@@ -346,21 +343,23 @@ Base.eltype(::Type{SplitIterator{B}}) where B<:Box{p,T,M,L} where {p,T,M,L} =
 
 maxchildren(splits::SplitIterator) = maxchildren(splits.base)
 
-struct ClimbingState{B<:Box}
+struct ClimbingState{B<:Box,BI,BS}
     box::B                  # current top-level node
     visited::Bool           # true if box.split has already been returned
     skipchildindex::UInt8   # index of branch from which we climbed
     childindex::Int         # index of branch we're currently exploring
-    branchiter::NonleafIterator{B}  # iterator for the current branch
-    branchstate::VisitorState{B}    # state for the current branch
+    branchiter::BI          # iterator for the current branch
+    branchstate::BS         # state for the current branch
 end
 
 # Create a state that marks `box`'s branch as having been visited
 ClimbingState(box::Box, visited::Bool) = ClimbingState(box, visited, box.childindex)
 
 function ClimbingState(box::B, visited::Bool, skipchildindex::Integer) where B<:Box
-    iter = NonleafIterator(box)
-    branchstate = VisitorState(box, maxchildren(box))
+    iter = Iterators.filter(isnonleaf, box)
+    # Initialize branchstate to be at the end of iter.
+    # Here we have to know the representation of the Iterators.Filter state object (ugh).
+    branchstate = (true, box, VisitorState(box, maxchildren(box)))
     if isroot(box)
         @assert(!visited)
         return ClimbingState(box, true, skipchildindex, maxchildren(box), iter, branchstate)
@@ -369,6 +368,6 @@ function ClimbingState(box::B, visited::Bool, skipchildindex::Integer) where B<:
 end
 
 # Replace the branch state
-ClimbingState(cstate::ClimbingState{B}, vstate::VisitorState) where B =
+ClimbingState(cstate::ClimbingState{B,BI,BS}, vstate::BS) where {B,BI,BS} =
     ClimbingState(cstate.box, cstate.visited, cstate.skipchildindex,
                   cstate.childindex, cstate.branchiter, vstate)

@@ -91,7 +91,8 @@ where `y` is a vector.
 """
 function addpoint!(box::Box, x, dimlists, metagen::Function)
     # Validate dimlists
-    covered = falses(ndims(box))
+    n = ndims(box)
+    covered = falses(n)
     for dimlist in dimlists
         for d in dimlist
             covered[d] && error("dimension $d was duplicated")
@@ -120,7 +121,14 @@ function addpoint!(box::Box, x, dimlists, metagen::Function)
             push!(metas, metagen(y))
             y[dl] = y0
         end
-        box = Box(box, dimlist, (d->x[d]).(dimlist), (metas...,))[end]
+        others = Box(box, dimlist, (d->x[d]).(dimlist), (metas...,))
+        # Ensure the returned box (and entire chain) is not displaced
+        # along fictive dimensions
+        cindex = 0x00
+        for d in dimlist
+            cindex = (cindex << 0x01) | (d <= n)
+        end
+        box = others[cindex]
         y[dimlistv] = x[dimlistv]
     end
     return box

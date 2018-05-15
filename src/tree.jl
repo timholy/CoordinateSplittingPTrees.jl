@@ -155,6 +155,7 @@ function boxbounds(box::Box, d::Integer)
             x = position(box0, d)
             # @show p lower upper lfilled ufilled xs xo x
             xl, xu = xs < xo ? (xs, xo) : (xo, xs)
+            # @show xl x xu
             if xl <= x <= xu
                 if !lfilled && xl < x
                     lower, lfilled = max((xl+xu)/2, (xl+x)/2), true
@@ -404,47 +405,25 @@ end
 
 Return an iterator visiting the leaf-nodes below `box` in depth-first order.
 """
-leaves(root::Box) = LeafIterator(root)
+leaves(root::Box) = Iterators.filter(box->isleaf(box) && !isfake(box), root)
 
-## LeafIterator
+"""
+    isfake(box)
 
-function Base.start(iter::LeafIterator)
-    isleaf(iter.root) && return VisitorState(iter.root, 0)
-    find_next_leaf(iter, VisitorState(iter.root, 0))
-end
-Base.done(iter::LeafIterator, state::VisitorState) = state.childindex >= maxchildren(iter.root)
-
-function Base.next(iter::LeafIterator, state::VisitorState)
-    @assert(isleaf(state.box))
-    return (state.box, find_next_leaf(iter, state))
-end
-function find_next_leaf(iter::LeafIterator, state::VisitorState)
-    _, state = next(iter.root, state)
-    while !isleaf(state.box) && state.childindex < maxchildren(iter.root)
-        _, state = next(iter.root, state)
+True if `box` has been displaced from its parent along a fictive dimension.
+"""
+function isfake(box::Box)
+    n = ndims(box)
+    p = box.parent
+    isleaf(p) && return false
+    split = p.split
+    tf = false
+    cidx = box.childindex
+    for d in split.dims
+        tf |= ((cidx & 0x01) == 0x01) & (d > n)
+        cidx = cidx >> 0x01
     end
-    return state
-end
-
-## NonleafIterator
-
-# depth-first pre-order
-function Base.start(iter::NonleafIterator)
-    return VisitorState(iter.root, isleaf(iter.root) ? maxchildren(iter.root) : 0)
-end
-
-Base.done(iter::NonleafIterator, state::VisitorState) = state.childindex >= maxchildren(iter.root)
-
-function Base.next(iter::NonleafIterator, state::VisitorState)
-    @assert(!isleaf(state.box))
-    return (state.box, find_next_nonleaf(iter, state))
-end
-function find_next_nonleaf(iter::NonleafIterator, state::VisitorState)
-    _, state = next(iter.root, state)
-    while isleaf(state.box) && state.childindex < maxchildren(iter.root)
-        _, state = next(iter.root, state)
-    end
-    return state
+    return tf
 end
 
 
@@ -503,7 +482,7 @@ function _next(splits, state)
     if childindex >= maxchildren(box)  # go up
         return item, ClimbingState(box, state.visited)
     end
-    iter = NonleafIterator(getchild(box.split, childindex))
+    iter = Iterators.filter(isnonleaf, getchild(box.split, childindex))
     return item, ClimbingState(box, true, skipchildindex, childindex, iter, start(iter))
 end
 
@@ -520,7 +499,11 @@ function Base.done(splits::SplitIterator, state::ClimbingState)
 end
 
 
-function Base.length(iter::Union{Box,CSpTreeIterator})
+Base.length(iter::Union{Box,CSpTreeIterator}) = _length(iter)
+Base.length(iter::Iterators.Filter{F,I}) where {F,I<:Union{Box,CSpTreeIterator}} =
+    _length(iter)
+
+function _length(iter)
     state = start(iter)
     len = 0
     while !done(iter, state)

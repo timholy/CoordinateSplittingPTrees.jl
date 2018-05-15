@@ -189,6 +189,25 @@ end
     myapproxeq(t1::Tuple{Real,Real}, t2::Tuple{Real,Real}) = t1[1] ≈ t2[1] && t1[2] ≈ t2[2]
     myapproxeq(v1::Vector, v2::Vector) = all(myapproxeq.(v1, v2))
 
+    # 1-d
+    world = World([-Inf], [Inf], [1], 0)
+    root = Box{2}(world)
+    addpoint!(root, [1.2], x->0)
+    # test for displacement along fictive dimension
+    chldrn = collect(AbstractTrees.children(root))
+    @test !CoordinateSplittingPTrees.isfake(chldrn[1])
+    @test !CoordinateSplittingPTrees.isfake(chldrn[2])
+    @test  CoordinateSplittingPTrees.isfake(chldrn[3])
+    @test  CoordinateSplittingPTrees.isfake(chldrn[4])
+    @test length(leaves(root)) == 2
+    box1 = addpoint!(root, [0.75], x->0)
+    @test length(leaves(root)) == 3
+    box2 = addpoint!(root, [0.5], x->0)
+    @test length(leaves(root)) == 4
+    @test boxbounds(box2, 1) == (-Inf, 5/8)
+    @test boxbounds(box1, 1) == (-Inf, 7/8)
+    @test boxbounds(getleaf(box1), 1) == (5/8, 7/8)
+
     # 2-d
     world = World([0,-Inf], [Inf,Inf], [1,1], nothing)
     root = @inferred(Box{2}(world))
@@ -216,6 +235,19 @@ end
     @test boxbounds(b, 1) == (1.5,Inf)
     @test boxbounds(b, 2) == (-Inf,1.5)
     @test boxbounds(b) == [(1.5,Inf), (-Inf,1.5)]
+
+    # 3-d (fake dimensions and iteration)
+    world = World(fill(-Inf,3), fill(Inf,3), fill(0,3), 1)
+    root = Box{2}(world)
+    @test length(root) == 1
+    @test length(leaves(root)) == 1
+    boxes1 = Box(root, (1,2), (1,1), (2, 3, 4)) # split along dims 1 & 2
+    @test length(root) == 5
+    @test length(leaves(root)) == 4
+    boxes2 = Box(boxes1[end], (3,4), (1,1), (5, 6, 7)) # split along dims 1 & 2
+    @test length(leaves(root)) == 5
+    v = [value(leaf) for leaf in leaves(root)]
+    @test v == [1:5;]
 
     # 4-d
     world = World([0,-Inf,-5,-Inf], [Inf,Inf,50,20], fill(1, 4), 1)
@@ -383,6 +415,7 @@ end
     root = Box{2}(world)
     x = ones(n)
     box = addpoint!(root, x, [(1,2), (3,)], f)
+    @test position(box) == x
     x = [0.6, 2, 2]
     box = addpoint!(root, x, [(2,3), (1,)], f)
     @test position(box) == [0.6,2,2]
@@ -406,7 +439,8 @@ end
     n = 6
     world = World(fill(-Inf, n), fill(Inf, n), fill(0, n), rand())
     root = Box{2}(world)
-    x = ones(n); addpoint!(root, x, [(1,2), (3,4), (5,6)], f)
+    x = ones(n); box = addpoint!(root, x, [(1,2), (3,4), (5,6)], f)
+    position(box) == x
     x = [0.8; 0.8; 0.8; 0.2; 0.2; 0.2]; addpoint!(root, x, [(1,3), (2,5), (4,6)], f)
     x = fill(0.2, n); addpoint!(root, x, [(1,5), (3,6), (2,4)], f)
     box = find_leaf_at(root, [0.2,0,0.2,0,0.2,0])
