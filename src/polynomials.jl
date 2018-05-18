@@ -98,7 +98,7 @@ function chaintop(box::Box{p}) where p
 end
 
 """
-    Cp = coefficients_p(box)
+    Cp = coefficients_p([f=value], box; skip=0)
 
 When fitting a polynomial of degree `p = degree(box)` to the data
 around `box`, compute those highest-order coefficients that can be
@@ -110,8 +110,15 @@ filled with NaN.
 For a CS2 tree, `Cp` will store the off-diagonal elements of the
 Hessian. The diagonals (and any undetermined off-diagonals) will be
 NaN.
+
+The optional argument `skip` allows you to omit early splits. This can
+be useful if you know that some calculation will be adversely affected
+by early splits. An example would be in estimating a residual (model
+error), where the model's degrees of freedom allow it to fit early
+splits exactly but for which there is no reason to believe that this
+is anything other than overfitting.
 """
-function coefficients_p(f::Function, box::Box{p,T}) where {p,T}
+function coefficients_p(f::Function, box::Box{p,T}; skip::Int=0) where {p,T}
     function bitsum(i)
         s = Int(i & 0x01)
         while i != 0
@@ -129,9 +136,12 @@ function coefficients_p(f::Function, box::Box{p,T}) where {p,T}
         nremaining *= (n-i)/(i+1)
     end
     # Iterate until we fill all coefficients or exhaust the tree
+    nsplits = 0
     for split in splits(box)
         dims = split.dims
         maximum(dims) > n && continue
+        nsplits += 1
+        nsplits <= skip && continue
         if isnan(Cp[dims...])
             denom = oneunit(T)
             for (d, x) in zip(split.dims, split.xs)

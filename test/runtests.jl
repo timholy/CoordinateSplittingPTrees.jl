@@ -733,8 +733,8 @@ end
             c, g, Q, b, y, prec, firstmatch = CoordinateSplittingPTrees.fit_quadratic_native(box)
             for leaf in leaves(root)
                 x = position(leaf)
-                @test modelvalue(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-8
-                @test modelvalue_chi(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-8
+                @test modelvalue(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-7
+                @test modelvalue_chi(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-7
             end
             c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic(box)
             @test Q ≈ B
@@ -742,6 +742,12 @@ end
             x = position(box)
             @test c + g'*(x - b) + (x-b)'*Q*(x-b)/2 ≈ f(x) rtol=1e-8
             @test abs(c - g'*b + (b'*Q*b)/2) < 1e-8
+            # gdiag approach (which can yield different answers for non-quadratic functions,
+            # but should be identical for quadratic)
+            Q = CoordinateSplittingPTrees.coefficients_p(box)
+            c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic_gdiag!(Q, box)
+            @test Q ≈ B
+            @test g ≈ Q*b
         end
     end
 end
