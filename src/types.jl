@@ -42,8 +42,12 @@ function World(lower::AbstractVector, upper::AbstractVector, position::AbstractV
     end
     Tb = boxcoordtype(T)
     positionb = world_ofeltype.(Tb, position)
-    return World{Tb,eltype(positionb),typeof(meta)}(lower, upper, positionb, meta)
+    metaval = metagen(meta, baseposition(positionb))
+    return World{Tb,eltype(positionb),typeof(metaval)}(lower, upper, positionb, metaval)
 end
+
+metagen(meta, x) = meta
+metagen(f::Function, x) = f(x)
 
 ## API for extending World:
 #  - `baseposition([T], position)` must return an actual position,
@@ -102,12 +106,14 @@ world_newposition(x, s::Tuple{Real,Real}, l::Real, u::Real) = x == s[1] ? s[2] :
 
 function World(lower::AbstractVector{T}, upper::AbstractVector{T}, splits::AbstractVector{Tuple{T,T}}, meta) where T<:Real
     Tb = boxcoordtype(T)
-    return World{Tb, Tuple{Tb,Tb}, typeof(meta)}(lower, upper, splits, meta)
+    metaval = metagen(meta, baseposition(Tb, splits))
+    return World{Tb, Tuple{Tb,Tb}, typeof(metaval)}(lower, upper, splits, metaval)
 end
 
 function World(lower::AbstractVector{Tl}, upper::AbstractVector{Tu}, splits::AbstractVector{Tuple{T,T}}, meta) where {Tl<:Real,Tu<:Real,T<:Real}
     Tb = boxcoordtype(promote_type(Tl,Tu,T))
-    return World{Tb, Tuple{Tb,Tb}, typeof(meta)}(lower, upper, splits, meta)
+    metaval = metagen(meta, baseposition(Tb, splits))
+    return World{Tb, Tuple{Tb,Tb}, typeof(metaval)}(lower, upper, splits, metaval)
 end
 
 
