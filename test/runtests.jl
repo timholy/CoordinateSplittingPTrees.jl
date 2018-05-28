@@ -770,6 +770,24 @@ end
     end
 end
 
+@testset "posdef" begin
+    Q = Float64[4 1; 1 4]
+    Qp = CoordinateSplittingPTrees.possemidef(Q)
+    @test Qp == Q
+    Q = Float64[1 4; 4 1]
+    Qp = CoordinateSplittingPTrees.possemidef(Q)
+    @test Qp == [4 4; 4 4]
+    Q = Float64[4.5 3; 3 0.5]
+    Qp = CoordinateSplittingPTrees.possemidef(Q)
+    @test Qp == [9 3; 3 1]
+    # This case is deliberately weaker in what it tests, since the
+    # desired behavior for 0 diagonal entries is less clear.
+    Q = Float64[0 2; 2 1]
+    Qp = CoordinateSplittingPTrees.possemidef(Q)
+    @test all(isfinite, Qp) && Qp[1,2] == Q[1,2]
+    cholfact(Qp) # test only that it's positive-definite
+end
+
 @testset "Display" begin
     io = IOBuffer()
     io2 = IOBuffer()

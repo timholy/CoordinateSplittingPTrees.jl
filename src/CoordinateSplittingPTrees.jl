@@ -15,6 +15,7 @@ include("types.jl")
 include("tree.jl")
 include("polynomials.jl")
 include("cs2.jl")
+include("posdef.jl")
 
 """
 CoordinateSplittingPTrees implements coordinate-splitting trees of
