@@ -85,6 +85,12 @@ end
     @test CoordinateSplittingPTrees.epswidth(boxbounds(box, 1)) == eps(0.5)
     @test CoordinateSplittingPTrees.epswidth(boxbounds(getleaf(root), 1)) == eps(0.5)
 
+    world = World([0], [1], [1], 10)
+    root = Box{1}(world)
+    box1 = Box(root, 1, 0, 20)[1]
+    leaf = find_leaf_at(root, 0.5)
+    @test leaf == getleaf(root)
+
     geom = Dict()
     root = generate_randboxes(Box{1}, 1, 10, (args...)->record_geometry!(geom, args...))
     for leaf in leaves(root)
@@ -207,6 +213,18 @@ end
     @test boxbounds(box2, 1) == (-Inf, 5/8)
     @test boxbounds(box1, 1) == (-Inf, 7/8)
     @test boxbounds(getleaf(box1), 1) == (5/8, 7/8)
+
+
+    world = World([0], [1], [0], 10)
+    root = Box{1}(world)
+    box1 = Box(root, 1, 1, 20)[1]
+    leaf = find_leaf_at(root, 0.5)
+    @test leaf == box1
+    world = World([0], [1], [1], 10)
+    root = Box{1}(world)
+    box1 = Box(root, 1, 0, 20)[1]
+    leaf = find_leaf_at(root, 0.5)
+    @test leaf == getleaf(root)
 
     # 2-d
     world = World([0,-Inf], [Inf,Inf], [1,1], nothing)

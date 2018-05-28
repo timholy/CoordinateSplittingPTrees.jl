@@ -343,6 +343,7 @@ function find_leaf_at(root::Box, x)
     @noinline throwdmm(n, l) = throw(DimensionMismatch("tree has $n dimensions, got $l"))
     n = ndims(root)
     length(x) == n || throwdmm(n, length(x))
+    # Check that x is in the interior of root
     for i = 1:n
         bb = boxbounds(root, i)
         ((bb[1] <= x[i]) && (x[i] < bb[2] || (x[i] == bb[2] && bb[2] == root.world.upper[i]))) || throwbb(bb, x[i], i)
@@ -350,13 +351,26 @@ function find_leaf_at(root::Box, x)
     isleaf(root) && return root
     while !isleaf(root)
         split = root.split
-        childidx = 0
+        childidx = 0  # assign using bitwise arithmetic
         for j = 1:degree(root)
             sd, xother = split.dims[j], split.xs[j]
             sd > n && continue
             xself = position(root, sd)
             xsd = x[sd]
-            childidx |= (abs(xsd - xother) <= abs(xsd - xself)) << (j-1)
+            # We need to choose the child where, for bb = boxbounds(child, sd),
+            # we have bb[1] <= xsd < bb[2]. This is a requirement if we plan
+            # to split child using the positions in x.
+            #
+            # Consequently this bit should be set according to
+            #
+            #                  |   xother > xself   |    xother < xself
+            #    --------------|--------------------|---------------------
+            #    xsd >= xmid   |         1          |           0
+            #    --------------|--------------------|---------------------
+            #    xsd < xmid    |         0          |           1
+            #
+            # where xmid = (xself+xother)/2.
+            childidx |= ((xsd >= (xself+xother)/2) ⊻ (xother < xself)) << (j-1)
         end
         root = getchild(split, childidx)
     end
