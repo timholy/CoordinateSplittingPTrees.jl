@@ -274,7 +274,17 @@ function Box(parent::Box{p,T,M,L,P}, splitdims::NTuple{k,Integer}, xs::NTuple{k,
 end
 
 
+"""
+    isroot(box)
+
+Return `true` if `box` is the root-node of a CSp-tree.
+"""
 isroot(box::Box) = box.parent == box
+"""
+    isleaf(box)
+
+Return `true` if `box` has no children, and hence is a leaf-node of a CSp-tree.
+"""
 isleaf(box::Box) = !isdefined(box, :split)
 isself(box::Box)  = !isroot(box) && box.parent.split.self == box
 isother(box::Box) = !isroot(box) && box.parent.split.self != box

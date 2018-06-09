@@ -227,4 +227,11 @@ function nanzero!(A::AbstractArray)
     return A
 end
 
+function init_plotting()
+    push!(LOAD_PATH, @__DIR__)
+    @eval Main using CSpPlots
+    pop!(LOAD_PATH)
+    nothing
+end
+
 end # module
