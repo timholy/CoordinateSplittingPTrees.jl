@@ -40,7 +40,11 @@ function choose_dimensions(box::Box{2})
             nfilled[d2] += 1
         end
         agecounter += 1
-        all(nfilled .>= neven-1) && break
+        allfilled = true
+        @inbounds @simd for i = 1:neven
+            allfilled &= nfilled[i] >= neven-1
+        end
+        allfilled && break
     end
     # Build the weighted graph and solve the matching problem
     pairgraph = BlossomV.Matching(neven)
