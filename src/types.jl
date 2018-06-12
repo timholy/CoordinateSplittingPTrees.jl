@@ -387,3 +387,19 @@ end
 ClimbingState(cstate::ClimbingState{B,BI,BS}, vstate::BS) where {B,BI,BS} =
     ClimbingState(cstate.box, cstate.visited, cstate.skipchildindex,
                   cstate.childindex, cstate.branchiter, vstate)
+## Incremental Gaussian Elimination
+
+struct IGE{T}
+    coefs::Matrix{T}
+    rhs::Vector{T}
+    rowtmp::Vector{T}
+end
+
+function IGE{T}(n::Integer) where T
+    coefs = fill(zero(T), n, n)
+    rhs = fill(zero(T), n)
+    rowtmp = Vector{T}(n)
+    return IGE{T}(coefs, rhs, rowtmp)
+end
+
+## SymmetricArray

@@ -770,6 +770,40 @@ end
     end
 end
 
+@testset "Gauss elim" begin
+    ige = CoordinateSplittingPTrees.IGE{Float64}(3)
+    insert!(ige, [0,1,0], 1)
+    insert!(ige, [1,0,0], 2)
+    insert!(ige, [0,0,1], 3)
+    x = CoordinateSplittingPTrees.solve(ige)
+    @test x ≈ [2,1,3]
+    empty!(ige)
+    U, _ = qr(randn(3,3))  # random unitary matrix
+    A = U*Diagonal(linspace(1,3,3))*U'  # random posdef with eigvals 1,2,3
+    rhs = randn(3)
+    xtrue = A\rhs
+    for i = 1:3
+        insert!(ige, A[i,:], rhs[i])
+        if i < 3
+            @test !done(ige)
+            @test_throws LinAlg.LAPACKException CoordinateSplittingPTrees.solve(ige)
+        end
+    end
+    @test done(ige)
+    x = CoordinateSplittingPTrees.solve(ige)
+    @test x ≈ xtrue
+    insert!(ige, A[3,:], 0)
+    x = CoordinateSplittingPTrees.solve(ige)
+    @test x ≈ xtrue
+    A = U*Diagonal([1.0,1.0,1e-12])*U'  # random posdef one small eigval
+    empty!(ige)
+    for i = 1:3
+        insert!(ige, A[i,:], rhs[i])
+    end
+    x = CoordinateSplittingPTrees.solve(ige)
+    @test x ≈ A \ rhs rtol=1e-4
+end
+
 @testset "posdef" begin
     Q = Float64[4 1; 1 4]
     Qp = CoordinateSplittingPTrees.possemidef(Q)

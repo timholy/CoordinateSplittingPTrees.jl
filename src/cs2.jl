@@ -382,3 +382,59 @@ end
 
 fit_quadratic_gdiag!(Q, box::Box{2}, b=position(box); skip::Int=0) =
     fit_quadratic_gdiag!(value, Q, box, b; skip=skip)
+function Base.insert!(ige::IGE{T}, x::AbstractVector, newrhs; canswap::Bool=true) where T
+    @inline myapprox(x, y, rtol) = (x == y) | (abs(x-y) < rtol*(abs(x) + abs(y)))
+    rtol = 1000*eps(T)
+
+    coefs, rhs, newrow = ige.coefs, ige.rhs, ige.rowtmp
+    copy!(newrow, x)  # to avoid destroying x
+    n = length(rhs)
+    i = 0
+    while i < n
+        i += 1
+        newrow[i]  == 0 && continue
+        coefs[i,i] == 0 && break
+        if canswap && abs(newrow[i]) > abs(coefs[i,i])
+            # Swap (for numeric stability)
+            for j = i:n
+                newrow[j], coefs[i,j] = coefs[i,j], newrow[j]
+            end
+            newrhs, rhs[i] = rhs[i], newrhs
+        end
+        # Cancel the ith value
+        c = newrow[i]/coefs[i,i]
+        @simd for j = i+1:n
+            sub = c * coefs[i,j]
+            newrow[j] = ifelse(myapprox(newrow[j], sub, rtol), zero(sub), newrow[j] - sub)
+        end
+        newrow[i] = 0  # rather than subtracting, just set it (to avoid roundoff error)
+        newrhs -= c*rhs[i]
+    end
+    if i <= n && newrow[i] != 0
+        # Insert new row
+        for j = i:n
+            coefs[i,j] = newrow[j]
+        end
+        rhs[i] = newrhs
+    end
+    return i
+end
+
+function Base.done(ige::IGE)
+    coefs = ige.coefs
+    n = size(coefs, 1)
+    for i = 1:n
+        coefs[i,i] == 0 && return false
+    end
+    return true
+end
+
+function solve(ige::IGE)
+    return ige.coefs \ ige.rhs
+end
+
+function Base.empty!(ige::IGE)
+    fill!(ige.coefs, 0)
+    fill!(ige.rhs, 0)
+    return ige
+end
