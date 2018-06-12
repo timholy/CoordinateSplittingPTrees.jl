@@ -512,6 +512,18 @@ function Base.done(splits::SplitIterator, state::ClimbingState)
     return true
 end
 
+chain(box::Box) = ChainIterator(box)
+
+Base.start(iter::ChainIterator) = (iter.base, 0)
+function Base.next(iter::ChainIterator{B}, state) where B<:Box{p} where p
+    box, count = state
+    item = box.split
+    return item, (item.others.children[end], count+p)
+end
+function Base.done(iter::ChainIterator{B}, state) where B<:Box{p} where p
+    return state[2] >= ndims(iter.base)
+end
+
 
 Base.length(iter::Union{Box,CSpTreeIterator}) = _length(iter)
 Base.length(iter::Iterators.Filter{F,I}) where {F,I<:Union{Box,CSpTreeIterator}} =

@@ -8,8 +8,8 @@ using Compat
 
 export Box, World
 export position, boxbounds, meta, value, addpoint!
-export getroot, getleaf, find_leaf_at, degree, isroot, isleaf
-export leaves, splits, splitprint, splitprint_colored, print_tree
+export getroot, getleaf, find_leaf_at, degree, isroot, isleaf, chaintop
+export leaves, splits, chain, splitprint, splitprint_colored, print_tree
 
 include("types.jl")
 include("tree.jl")

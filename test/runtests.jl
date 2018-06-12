@@ -540,9 +540,21 @@ end
         end
         i = length(chaintops)
         while !isroot(box)
-            top, success = CoordinateSplittingPTrees.chaintop(box)
+            top, success = chaintop(box)
             @test success
             @test top == chaintops[i]
+            ntests = 0
+            for (j, split) in enumerate(chain(top))
+                @test j < 3
+                if j == 1
+                    @test split == top.split
+                    ntests += 1
+                elseif j == 2
+                    @test split == top.split.others.children[end].split
+                    ntests += 1
+                end
+            end
+            @test ntests == 2
             for child in box.parent.split.others.children
                 top, success = CoordinateSplittingPTrees.chaintop(child)
                 @test success

@@ -394,6 +394,13 @@ end
 ClimbingState(cstate::ClimbingState{B,BI,BS}, vstate::BS) where {B,BI,BS} =
     ClimbingState(cstate.box, cstate.visited, cstate.skipchildindex,
                   cstate.childindex, cstate.branchiter, vstate)
+
+struct ChainIterator{B<:Box} <: CSpTreeIterator
+    base::B
+end
+Base.eltype(::Type{ChainIterator{B}}) where B<:Box{p,T,M,L} where {p,T,M,L} =
+    Split{p,T,M,B,L}
+
 ## Incremental Gaussian Elimination
 
 struct IGE{T}

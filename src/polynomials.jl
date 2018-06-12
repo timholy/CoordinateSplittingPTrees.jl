@@ -118,7 +118,32 @@ error), where the model's degrees of freedom allow it to fit early
 splits exactly but for which there is no reason to believe that this
 is anything other than overfitting.
 """
-function coefficients_p(f::Function, box::Box{p,T}; skip::Int=0) where {p,T}
+function coefficients_p(f::Function, box::Box{p,T}, callback::Function;
+                        skip::Int=0) where {p,T}
+    iter = splits(box)
+    state = start(iter)
+    for i = 1:skip
+        _, state = next(iter, state)
+    end
+    Cp, state = coefficients_p(f, box, iter, state, callback)
+    return Cp
+end
+
+coefficients_p(f::Function, box::Box; skip::Int=0) =
+    coefficients_p(f, box, (box,val)->nothing; skip=skip)
+
+coefficients_p(box::Box{p,T}) where {p,T} = coefficients_p(value, box)
+
+# This implementation makes it possible for callers to continue
+# iterating where this left off. A practical application is a CS2 tree
+# being used to construct a quadratic model in 2 dimensions: 1 split
+# is enough to determine the off-diagonal coefficient, but a 2nd split
+# is needed to determine the gradient and diagonal entries.
+function coefficients_p(f::Function,
+                        box::Box{p,T},
+                        iter,
+                        state,
+                        callback::Function) where {p,T}
     function bitsum(i)
         s = Int(i & 0x01)
         while i != 0
@@ -128,6 +153,7 @@ function coefficients_p(f::Function, box::Box{p,T}; skip::Int=0) where {p,T}
         return s
     end
     bitsign(i) = isodd(bitsum(i)) ? -1 : 1
+
     n = ndims(box)
     Cp = allocate_coefficients_p(n, box)
     # Calculate the number of coefficients that could be set (n choose p)
@@ -136,12 +162,10 @@ function coefficients_p(f::Function, box::Box{p,T}; skip::Int=0) where {p,T}
         nremaining *= (n-i)/(i+1)
     end
     # Iterate until we fill all coefficients or exhaust the tree
-    nsplits = 0
-    for split in splits(box)
+    while !done(iter, state)
+        split, state = next(iter, state)
         dims = split.dims
         maximum(dims) > n && continue
-        nsplits += 1
-        nsplits <= skip && continue
         if isnan(Cp[dims...])
             denom = oneunit(T)
             for (d, x) in zip(split.dims, split.xs)
@@ -150,17 +174,18 @@ function coefficients_p(f::Function, box::Box{p,T}; skip::Int=0) where {p,T}
             s = isodd(p) ? -1 : 1
             num = zero(T)
             for ichild = 0:maxchildren(box)-1
-                num += (s * bitsign(ichild)) * f(getchild(split, ichild))
+                child = getchild(split, ichild)
+                fc = f(child)
+                num += (s * bitsign(ichild)) * fc
+                callback(child, fc)
             end
             Cp[dims...] = num/denom
             nremaining -= 1
         end
         nremaining <= 0 && break
     end
-    return Cp
+    return Cp, state
 end
-coefficients_p(box::Box{p,T}) where {p,T} = coefficients_p(value, box)
 
 allocate_coefficients_p(n, box::Box{p,T}) where {p,T} =
     SymmetricArray(fill(T(NaN), ntuple(d->n, Val(p))))
-
