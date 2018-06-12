@@ -164,31 +164,3 @@ coefficients_p(box::Box{p,T}) where {p,T} = coefficients_p(value, box)
 allocate_coefficients_p(n, box::Box{p,T}) where {p,T} =
     SymmetricArray(fill(T(NaN), ntuple(d->n, Val(p))))
 
-
-## SymmetricArray
-
-# A "utility type" (not really core to this package) to make it easy
-# to work with higher-order polynomial models.
-struct SymmetricArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
-    data::A
-end
-SymmetricArray(A::AbstractArray{T,N}) where {T,N} =
-    SymmetricArray{T,N,typeof(A)}(A)
-
-Base.size(S::SymmetricArray) = size(S.data)
-
-function Base.getindex(S::SymmetricArray{T,N}, I::Vararg{Int,N}) where {T,N}
-    J = CoordinateSplittingPTrees.tuplesort(I)
-    return S.data[J...]
-end
-
-function Base.setindex!(S::SymmetricArray{T,N}, val, I::Vararg{Int,N}) where {T,N}
-    J = tuplesort(I)
-    S.data[J...] = val
-    return val
-end
-
-tuplesort(dims::Tuple{})        = dims
-tuplesort(dims::Tuple{Int})     = dims
-tuplesort(dims::Tuple{Int,Int}) = dims[1] > dims[2] ? (dims[2], dims[1]) : dims
-tuplesort(dims::NTuple{N,Int}) where N = (sort([dims...])...,)

@@ -163,6 +163,13 @@ Split{p,T}(dims::NTuple{p,Integer},
            others::Children{M,B,L}) where {T,p,M,B,L} =
    Split{p,T,M,B,L}(dims, xs, self, others)
 
+boxtype(::Type{Split{p,T,M,B,L}}) where {p,T,M,B,L} = B
+function Base.show(io::IO, split::Split)
+    print(io, "Split(")
+    show(io, split.self)
+    print(io, " along $(split.dims) at $(split.xs))")
+end
+
 mutable struct Box{p,T,M,L,P}
     world::World{T,P,M}      # the overall problem domain
     parent::Box{p,T,M,L,P}   # the node above this one
@@ -403,3 +410,33 @@ function IGE{T}(n::Integer) where T
 end
 
 ## SymmetricArray
+
+# A "utility type" (not really core to this package) to make it easy
+# to work with higher-order polynomial models.
+struct SymmetricArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
+    data::A
+end
+SymmetricArray(A::AbstractArray{T,N}) where {T,N} =
+    SymmetricArray{T,N,typeof(A)}(A)
+
+Base.size(S::SymmetricArray) = size(S.data)
+
+function Base.getindex(S::SymmetricArray{T,N}, I::Vararg{Int,N}) where {T,N}
+    J = CoordinateSplittingPTrees.tuplesort(I)
+    return S.data[J...]
+end
+
+function Base.setindex!(S::SymmetricArray{T,N}, val, I::Vararg{Int,N}) where {T,N}
+    J = tuplesort(I)
+    S.data[J...] = val
+    return val
+end
+
+tuplesort(dims::Tuple{})        = dims
+tuplesort(dims::Tuple{Int})     = dims
+tuplesort(dims::Tuple{Int,Int}) = dims[1] > dims[2] ? (dims[2], dims[1]) : dims
+tuplesort(dims::NTuple{N,Int}) where N = (sort([dims...])...,)
+
+# Convenience functions
+mtrx(S::SymmetricArray{T,2}) where T = Symmetric(S.data, :L)
+Base.eig(S::SymmetricArray{T,2}) where T = eig(mtrx(S))

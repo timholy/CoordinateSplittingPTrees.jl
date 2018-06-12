@@ -227,6 +227,17 @@ function nanzero!(A::AbstractArray)
     return A
 end
 
+function randleaf(root)
+    L = maxchildren(root)
+    box = root
+    while !isleaf(box)
+        split = box.split
+        children = (split.self, split.others.children...)
+        box = children[rand(1:L)]
+    end
+    return box
+end
+
 function init_plotting()
     push!(LOAD_PATH, @__DIR__)
     @eval Main using CSpPlots
