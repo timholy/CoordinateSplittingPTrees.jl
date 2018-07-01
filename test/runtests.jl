@@ -635,6 +635,56 @@ end
     end
 end
 
+@testset "Sparse Hessians" begin
+    function fsparse(x)
+        dx = diff(x)       # only (i,i+1) Q terms are nonzero
+        return sum(abs2, dx)/2
+    end
+    x0 = [0.1,0.2,0.3,0.4]
+    world = World(x0, fsparse)
+    root = Box{2}(world)
+    box = addpoint!(root, 2*x0, [(1,3), (2,4)], fsparse) # neither split has nonzero in Hessian
+    box = addpoint!(root, 3*x0, [(2,3), (1,4)], fsparse)
+    box = addpoint!(root, 4*x0, [(1,4), (2,3)], fsparse)
+    box = addpoint!(root, 5*x0, [(1,2), (3,4)], fsparse)
+    count = 0
+    callback = (box,val)->(global count; count+=1)
+    Q = zeros(4, 4)
+    @test_throws MethodError CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)  # type must enforce symmetry
+    Q = CoordinateSplittingPTrees.SymmetricArray(Q)
+    CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
+    for i = 1:3
+        @test Q[i,i+1] ≈ -1
+        @test Q[i+1,i] ≈ -1
+        @test isnan(Q[i,i])
+    end
+    @test abs((Q[1,3])) < 1e-8
+    @test abs((Q[2,4])) < 1e-8
+    @test abs((Q[1,4])) < 1e-8
+    @test count == 24
+    Q = SymTridiagonal(zeros(4), zeros(3))
+    count = 0
+    CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
+    for i = 1:3
+        @test Q[i,i+1] ≈ -1
+        @test Q[i+1,i] ≈ -1
+        @test isnan(Q[i,i])
+    end
+    @test count == 12
+    Q = sparse([1,1,2,2,3,3,4,1], [1,2,2,3,3,4,4,4], zeros(8))
+    @test_throws MethodError CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
+    Q = CoordinateSplittingPTrees.SymmetricArray(Q)
+    @test CoordinateSplittingPTrees.nnz_offdiag_sym(Q) == 4
+    count = 0
+    CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
+    for i = 1:3
+        @test Q[i,i+1] ≈ -1
+        @test Q[i+1,i] ≈ -1
+        @test isnan(Q[i,i])
+    end
+    @test count == 16
+end
+
 @testset "Choosing split dimensions" begin
     f(x) = rand()
     n = 2

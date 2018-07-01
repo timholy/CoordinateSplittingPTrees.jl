@@ -117,9 +117,21 @@ by early splits. An example would be in estimating a residual (model
 error), where the model's degrees of freedom allow it to fit early
 splits exactly but for which there is no reason to believe that this
 is anything other than overfitting.
+
+Finally, there are many other variants:
+
+    Cp = coefficients_p(f, box, callback)   # callback(box, val) is called for each box visited
+    Cp, state = coefficients_p(f, box, iter, state, callback)   # for custom iteration over splits
+    coefficients_p!(f, Cp, box)    # for pre-allocated outputs, can exploit sparsity
 """
+coefficients_p(box::Box{p,T}) where {p,T} = coefficients_p(value, box) # supply the "readout" function
+
+coefficients_p(f::Function, box::Box; skip::Int=0) =
+    coefficients_p(f, box, (box,val)->nothing; skip=skip) # add the callback
+
 function coefficients_p(f::Function, box::Box{p,T}, callback::Function;
                         skip::Int=0) where {p,T}
+    # Create the iterator
     iter = splits(box)
     state = start(iter)
     for i = 1:skip
@@ -129,21 +141,56 @@ function coefficients_p(f::Function, box::Box{p,T}, callback::Function;
     return Cp
 end
 
-coefficients_p(f::Function, box::Box; skip::Int=0) =
-    coefficients_p(f, box, (box,val)->nothing; skip=skip)
+function coefficients_p(f::Function,
+                        box::Box{p,T},
+                        iter,
+                        state,
+                        callback::Function) where {p,T}
+    # Allocate the output
+    n = ndims(box)
+    Cp = allocate_coefficients_p(n, box)
+    return coefficients_p!(f, Cp, box, iter, state, callback)
+end
 
-coefficients_p(box::Box{p,T}) where {p,T} = coefficients_p(value, box)
+coefficients_p!(Cp::AbstractArray, box::Box{p,T}; skip::Int=0) where {p,T} =
+    coefficients_p!(value, Cp, box; skip=skip)
+
+coefficients_p!(f::Function, Cp::AbstractArray, box::Box; skip::Int=0) =
+    coefficients_p!(f, Cp, box, (box,val)->nothing; skip=skip)
+
+coefficients_p!(Cp::AbstractArray, box::Box{p,T}, callback::Function;
+    skip::Int=0) where {p,T} = coefficients_p!(value, Cp, box, callback; skip=skip)
+
+function coefficients_p!(f::Function, Cp::AbstractArray, box::Box{p,T}, callback::Function;
+                         skip::Int=0) where {p,T}
+    iter = splits(box)
+    state = start(iter)
+    for i = 1:skip
+        _, state = next(iter, state)
+    end
+    Cp, state = coefficients_p!(f, Cp, box, iter, state, callback)
+    return Cp
+end
+
+function coefficients_p!(Cp::AbstractArray{S,p},
+                         box::Box{p,T},
+                         iter,
+                         state,
+                         callback::Function) where {p,S,T}
+    return coefficients_p!(value, Cp, box, iter, state, callback)
+end
 
 # This implementation makes it possible for callers to continue
 # iterating where this left off. A practical application is a CS2 tree
 # being used to construct a quadratic model in 2 dimensions: 1 split
 # is enough to determine the off-diagonal coefficient, but a 2nd split
 # is needed to determine the gradient and diagonal entries.
-function coefficients_p(f::Function,
-                        box::Box{p,T},
-                        iter,
-                        state,
-                        callback::Function) where {p,T}
+function coefficients_p!(f::Function,
+                         Cp::Union{SymmetricArray{S,p},SymmetricMatrix{S}},
+                         box::Box{p,T},
+                         iter,
+                         state,
+                         callback::Function) where {p,S,T}
     function bitsum(i)
         s = Int(i & 0x01)
         while i != 0
@@ -154,13 +201,12 @@ function coefficients_p(f::Function,
     end
     bitsign(i) = isodd(bitsum(i)) ? -1 : 1
 
-    n = ndims(box)
-    Cp = allocate_coefficients_p(n, box)
     # Calculate the number of coefficients that could be set (n choose p)
-    nremaining = n
-    for i = 1:p-1
-        nremaining *= (n-i)/(i+1)
-    end
+    n = ndims(box)
+    ndims(Cp) == p || throw(DimensionMismatch("output should be $p-dimensional, got $(ndims(Cp))"))
+    all(isequal(n), size(Cp)) || throw(DimensionMismatch("output should have size $n along each axis, got $(size(Cp))"))
+    nremaining = nnz_offdiag_sym(Cp)
+    fillnz!(Cp, NaN)
     # Iterate until we fill all coefficients or exhaust the tree
     while !done(iter, state)
         split, state = next(iter, state)
@@ -189,3 +235,56 @@ end
 
 allocate_coefficients_p(n, box::Box{p,T}) where {p,T} =
     SymmetricArray(fill(T(NaN), ntuple(d->n, Val(p))))
+
+function nnz_offdiag_sym(A)
+    n = size(A, 1)
+    nremaining = n
+    for i = 1:ndims(A)-1
+        nremaining *= (n-i)/(i+1)
+    end
+    return round(Int, nremaining)
+end
+
+function nnz_offdiag_sym(A::SymmetricArray{T,2,<:SparseMatrixCSC}) where T
+    nremaining = 0
+    S = A.data
+    n = size(S, 1)
+    for j = 1:n
+        for idx = S.colptr[j]:S.colptr[j+1]-1
+            i = S.rowval[idx]
+            nremaining += i < j
+        end
+    end
+    return nremaining
+end
+
+function nnz_offdiag_sym(A::SymTridiagonal)
+    return length(A.ev)
+end
+
+fillnz!(A::AbstractArray, val) = fill!(A, val)
+fillnz!(A::SymmetricArray, val) = fillnz!(A.data, val)
+function fillnz!(A::SparseMatrixCSC, val)
+    fill!(A.nzval, val)
+    return A
+end
+function fillnz!(A::SymTridiagonal, val)
+    fill!(A.dv, val)
+    fill!(A.ev, val)
+    return A
+end
+
+# Move to stdlib/Base:
+function Base.setindex!(A::SymTridiagonal, x, i::Integer, j::Integer)
+    @boundscheck checkbounds(A, i, j)
+    if i == j
+        @inbounds A.dv[i] = x
+    elseif i == j+1
+        @inbounds A.ev[j] = x
+    elseif i+1 == j
+        @inbounds A.ev[i] = x
+    else
+        throw(ArgumentError("cannot set off-diagonal entry ($i, $j)"))
+    end
+    return x
+end

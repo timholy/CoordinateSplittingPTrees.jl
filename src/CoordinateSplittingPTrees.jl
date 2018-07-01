@@ -227,6 +227,19 @@ function nanzero!(A::AbstractArray)
     return A
 end
 
+nanzero!(A::SymmetricArray) = nanzero!(A.data)
+
+function nanzero!(A::SparseMatrixCSC)
+    nanzero!(A.nzvals)
+    return A
+end
+
+function nanzero!(A::SymTridiagonal)
+    nanzero!(A.ev)
+    nanzero!(A.dv)
+    return A
+end
+
 function randleaf(root)
     L = maxchildren(root)
     box = root
