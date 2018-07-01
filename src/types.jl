@@ -46,6 +46,12 @@ function World(lower::AbstractVector, upper::AbstractVector, position::AbstractV
     return World{Tb,eltype(positionb),typeof(metaval)}(lower, upper, positionb, metaval)
 end
 
+function World(position::AbstractVector{T}, meta) where T<:Real
+    Tb = boxcoordtype(T)
+    n = length(position)
+    return World(fill(Tb(-Inf), n), fill(Tb(Inf), n), position, meta)
+end
+
 metagen(meta, x) = meta
 metagen(f::Function, x) = f(x)
 
@@ -114,6 +120,13 @@ function World(lower::AbstractVector{Tl}, upper::AbstractVector{Tu}, splits::Abs
     Tb = boxcoordtype(promote_type(Tl,Tu,T))
     metaval = metagen(meta, baseposition(Tb, splits))
     return World{Tb, Tuple{Tb,Tb}, typeof(metaval)}(lower, upper, splits, metaval)
+end
+
+function World(splits::AbstractVector{Tuple{T,T}}, meta) where T<:Real
+    Tb = boxcoordtype(T)
+    metaval = metagen(meta, baseposition(Tb, splits))
+    n = length(splits)
+    return World{Tb, Tuple{Tb,Tb}, typeof(metaval)}(fill(Tb(-Inf), n), fill(Tb(Inf), n), splits, metaval)
 end
 
 

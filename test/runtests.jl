@@ -16,6 +16,12 @@ end
     @test_throws ArgumentError World(zeros(2), ones(2), [7.0,0.5], 0)
     world = @inferred(World(zeros(2), [Inf,1], [7.0,0.5], 0))
     @test CoordinateSplittingPTrees.baseposition(world) == [7.0, 0.5]
+    world = @inferred(World([1,2], 0))
+    @test world.lower == [-Inf,-Inf]
+    @test world.upper == [Inf,Inf]
+    @test CoordinateSplittingPTrees.baseposition(world) == [1.0,2.0]
+    world = @inferred(World([1,2], x->3.0))
+    @test world.meta == 3.0
 
     # Behavior reserved for use by QuadSplit (2-tuple splits)
     world = @inferred(World(zeros(3), fill(3, 3), fill((1,2), 3), DummyMeta(0)))
@@ -24,6 +30,12 @@ end
     world = World(zeros(3), fill(3, 3), fill((2,1), 3), DummyMeta(0))
     @test CoordinateSplittingPTrees.baseposition(world) == fill(2, 3)
     @test_throws ArgumentError World(zeros(3), fill(3, 3), fill((1,1), 3), DummyMeta(0))
+    world = World(zeros(3), fill(3, 3), fill((2,1), 3), DummyMeta(0))
+    @test CoordinateSplittingPTrees.baseposition(world) == fill(2, 3)
+    world = World(fill((2,1), 3), DummyMeta(0))
+    @test world.lower == [-Inf,-Inf,-Inf]
+    @test world.upper == [Inf,Inf,Inf]
+    @test CoordinateSplittingPTrees.baseposition(world) == fill(2, 3)
 
     world = World(fill(-Inf, 3), fill(Inf, 3), fill((1,2.5), 3), 0)
     root = Box{2}(world)
