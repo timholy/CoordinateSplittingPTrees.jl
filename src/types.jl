@@ -460,3 +460,5 @@ tuplesort(dims::NTuple{N,Int}) where N = (sort([dims...])...,)
 # Convenience functions
 mtrx(S::SymmetricArray{T,2}) where T = Symmetric(S.data, :L)
 Base.eig(S::SymmetricArray{T,2}) where T = eig(mtrx(S))
+
+const SymmetricMatrix{T} = Union{Symmetric{T}, SymTridiagonal{T}}
