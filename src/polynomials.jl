@@ -288,3 +288,10 @@ function Base.setindex!(A::SymTridiagonal, x, i::Integer, j::Integer)
     end
     return x
 end
+
+# Move to DataStructures:
+function Base.empty!(pq::PriorityQueue)
+    empty!(pq.xs)
+    empty!(pq.index)
+    return pq
+end

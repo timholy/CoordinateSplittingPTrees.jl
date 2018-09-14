@@ -46,6 +46,7 @@ function choose_dimensions(box::Box{2})
         end
         allfilled && break
     end
+    agecounter *= 2  # to ensure we always select unseen pairs, if they exist
     # Build the weighted graph and solve the matching problem
     pairgraph = BlossomV.Matching(neven)
     for j = 1:neven, i = 1:j-1
@@ -373,6 +374,7 @@ function fit_quadratic_gdiag!(f::Function, Q, box::Box{2,T}, b=position(box); sk
             a12, a22 = qcoefs[1,d], qcoefs[2,d]  # a11 and a21 are both 1
             r1, r2 = rhs[1,d], rhs[2,d]
             det = a22 - a12    # manual inverse of 2x2 matrix
+            # @show a12 a22 r1 r2 det
             g[d] = (a22*r1 - a12*r2)/det
             Q[d,d] = (-r1 + r2)/det
         end
@@ -382,6 +384,151 @@ end
 
 fit_quadratic_gdiag!(Q, box::Box{2}, b=position(box); skip::Int=0) =
     fit_quadratic_gdiag!(value, Q, box, b; skip=skip)
+
+
+function constraints_quadratic_gdiag(f::Function, Q, box::Box{2,T}, b=position(box); skip::Int=0) where T
+    n = ndims(box)
+    qcoefs = [T[] for i = 1:n]
+    rhs = [T[] for i = 1:n]
+    filled = similar(b, Bool)
+    x = position(box)
+    covered = falses(n, n)
+    nremaining = (n*(n-1))÷2
+    c = f(box)
+    # Iterate until we fill all coefficients or exhaust the tree
+    nsplits = 0
+    for split in splits(box)
+        nremaining == 0 && break
+        nsplits += 1
+        nsplits <= skip && continue
+        if split.dims[2] <= n
+            d1, d2 = split.dims
+            if !covered[d1, d2]
+                nremaining -= 1
+                covered[d1, d2] = covered[d2, d1] = true
+            end
+        end
+        for (i, d) in enumerate(split.dims)
+            d <= n || continue
+            position!(x, filled, split.self)
+            xs = split.xs[i]
+            xcoef = (x[d]+xs)/2 - b[d]
+            # any(qcoefs[d] .== xcoef) && continue  # not independent of previous entries
+            Δx = xs - x[d]
+            fd = (f(split.others.children[i]) - f(split.self))/Δx
+            for j = 1:n
+                j == d && continue
+                fd -= Q[d,j]*(x[j] - b[j])
+            end
+            if isfinite(xcoef) && isfinite(fd)
+                push!(qcoefs[d], xcoef)
+                push!(rhs[d], fd)
+            end
+        end
+    end
+    return qcoefs, rhs
+end
+
+constraints_quadratic_gdiag!(Q, box::Box{2}, b=position(box); skip::Int=0) =
+    constraints_quadratic_gdiag!(value, Q, box, b; skip=skip)
+
+function solve_gdiag_constraints_lsq!(Q, qcoefs, rhs)
+    n = size(Q, 1)
+    g = similar(Q, n)
+    for d = 1:n
+        c, r = qcoefs[d], rhs[d]
+        A = [ones(length(c)) c]
+        sol = A \ r
+        g[d], Q[d,d] = sol[1], sol[2]
+    end
+    return g, Q
+end
+
+fit_quadratic_gdiag_lsq!(Q, box::Box{2}, b=position(box); skip::Int=0) =
+    fit_quadratic_gdiag_lsq!(value, Q, box, b; skip=skip)
+
+function fit_quadratic_gdiag_lsq!(f::Function, Q, box::Box{2}, b=position(box); skip::Int=0)
+    qcoefs, rhs = constraints_quadratic_gdiag(f, Q, box, b; skip=skip)
+    g, Q = solve_gdiag_constraints_lsq!(Q, qcoefs, rhs)
+    return f(box), g, Q, b
+end
+
+
+function fit_quadratic_lowest(f::Function, box::Box{2,T}, iter) where T
+    c = f(box)
+    n = ndims(box)
+    pq = PriorityQueue{typeof(box),typeof(c)}()
+    state = start(iter)
+    Q, state = coefficients_p(f, box, iter, state, (box,val)->enqueue!(pq, box, val))
+    return fit_quadratic_lowest!(f, Q, pq, box, iter, state)
+end
+
+function fit_quadratic_lowest!(f::Function, Q::AbstractMatrix, pq::PriorityQueue, box::Box{2,T}, iter, state) where T
+    function addbox!(ige, bx)
+        # The temporaries here are allocated in the outer function
+        leaf = getleaf(bx)
+        if leaf ∉ covered
+            position!(Δx, filled, leaf)
+            Δx .-= b
+            xx[1:n] .= Δx
+            xx[n+1:2n] .= Δx.^2./2
+            v = f(leaf) - c - (Δx'*Q*Δx)/2
+            insert!(ige, xx, v)
+            push!(covered, leaf)
+        end
+        return nothing
+    end
+
+    c = f(box)
+    n = ndims(box)
+    # TODO? underspecified models
+    nanzero!(Q)
+    b = position(box)
+    Δx = similar(b)
+    filled = similar(b, Bool)
+    xx = similar(Δx, 2n)
+    # Set up the diagonal fits
+    n = ndims(box)
+    ige = IGE{T}(2n)
+    covered = Set{typeof(box)}()
+    while !done(ige) && !isempty(pq)
+        addbox!(ige, dequeue!(pq))
+    end
+    # We might need more splits to constrain the model
+    while !done(ige) && !done(iter, state)
+        split, state = next(iter, state)
+        for i = 0:3
+            child = getchild(split, i)
+            enqueue!(pq, child, f(child))
+        end
+        while !done(ige) && !isempty(pq)
+            addbox!(ige, dequeue!(pq))
+        end
+    end
+    if !done(ige)
+        return nothing, nothing, Q, nothing
+    end
+    local gd
+    try
+        gd = solve(ige)
+    catch err
+        @show done(ige)
+        @show ige.coefs
+        rethrow(err)
+    end
+    g = gd[1:n]
+    for i = 1:n
+        Q[i,i] = gd[n+i]
+    end
+    return c, g, Q, b
+end
+
+fit_quadratic_lowest(box::Box) = fit_quadratic_lowest(value, box)
+fit_quadratic_lowest(box::Box, splits) =
+    fit_quadratic_lowest(value, box, splits)
+fit_quadratic_lowest(f::Function, box::Box) =
+    fit_quadratic_lowest(f, box, splits(box))
+
 function Base.insert!(ige::IGE{T}, x::AbstractVector, newrhs; canswap::Bool=true) where T
     @inline myapprox(x, y, rtol) = (x == y) | (abs(x-y) < rtol*(abs(x) + abs(y)))
     rtol = 1000*eps(T)
@@ -389,10 +536,9 @@ function Base.insert!(ige::IGE{T}, x::AbstractVector, newrhs; canswap::Bool=true
     coefs, rhs, newrow = ige.coefs, ige.rhs, ige.rowtmp
     copy!(newrow, x)  # to avoid destroying x
     n = length(rhs)
-    i = 0
-    while i < n
-        i += 1
-        newrow[i]  == 0 && continue
+    i = 1
+    while i <= n
+        newrow[i]  == 0 && (i += 1; continue)
         coefs[i,i] == 0 && break
         if canswap && abs(newrow[i]) > abs(coefs[i,i])
             # Swap (for numeric stability)
@@ -409,13 +555,21 @@ function Base.insert!(ige::IGE{T}, x::AbstractVector, newrhs; canswap::Bool=true
         end
         newrow[i] = 0  # rather than subtracting, just set it (to avoid roundoff error)
         newrhs -= c*rhs[i]
+        i += 1
     end
-    if i <= n && newrow[i] != 0
-        # Insert new row
-        for j = i:n
-            coefs[i,j] = newrow[j]
+    if i <= n
+        if newrow[i] != 0
+            @assert ige.neqs[i] == 0
+            # Insert new row
+            for j = i:n
+                coefs[i,j] = newrow[j]
+            end
+            rhs[i] = newrhs
+        else
+            # Ensures a least-squares solution
+            rhs[i] = (ige.neqs[i]*rhs[i] + newrhs)/(ige.neqs[i] + 1)
         end
-        rhs[i] = newrhs
+        ige.neqs[i] += 1
     end
     return i
 end
@@ -436,5 +590,6 @@ end
 function Base.empty!(ige::IGE)
     fill!(ige.coefs, 0)
     fill!(ige.rhs, 0)
+    fill!(ige.neqs, 0)
     return ige
 end

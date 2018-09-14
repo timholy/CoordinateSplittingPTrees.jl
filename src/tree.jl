@@ -542,5 +542,5 @@ end
 # useful for debugging
 function Base.show(io::IO, state::ClimbingState)
     println(io, "box $(state.box), visited $(state.visited), splitdims $(state.box.split.dims), skipidx $(state.skipchildindex), childidx $(state.childindex)")
-    print(io, "branchiter $(state.branchiter.root), branch-is-done $(done(state.branchiter, state.branchstate))")
+    print(io, "branchiter $(state.branchiter), branch-is-done $(done(state.branchiter, state.branchstate))")
 end

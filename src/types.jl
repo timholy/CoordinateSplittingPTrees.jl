@@ -177,6 +177,8 @@ Split{p,T}(dims::NTuple{p,Integer},
    Split{p,T,M,B,L}(dims, xs, self, others)
 
 boxtype(::Type{Split{p,T,M,B,L}}) where {p,T,M,B,L} = B
+Base.:<(s1::Split{p}, s2::Split{p}) where p =
+    minimum(value.(s1.others.metas)) < minimum(value.(s2.others.metas))
 function Base.show(io::IO, split::Split)
     print(io, "Split(")
     show(io, split.self)
@@ -420,13 +422,15 @@ struct IGE{T}
     coefs::Matrix{T}
     rhs::Vector{T}
     rowtmp::Vector{T}
+    neqs::Vector{Int}
 end
 
 function IGE{T}(n::Integer) where T
     coefs = fill(zero(T), n, n)
     rhs = fill(zero(T), n)
     rowtmp = Vector{T}(n)
-    return IGE{T}(coefs, rhs, rowtmp)
+    neqs = fill(0, n)
+    return IGE{T}(coefs, rhs, rowtmp, neqs)
 end
 
 ## SymmetricArray

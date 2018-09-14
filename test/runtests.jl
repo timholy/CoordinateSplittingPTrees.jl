@@ -647,8 +647,11 @@ end
     box = addpoint!(root, 3*x0, [(2,3), (1,4)], fsparse)
     box = addpoint!(root, 4*x0, [(1,4), (2,3)], fsparse)
     box = addpoint!(root, 5*x0, [(1,2), (3,4)], fsparse)
-    count = 0
-    callback = (box,val)->(global count; count+=1)
+    let count = 0
+        callback = (box,val)->(global count; count+=1)
+        resetcount() = (global count; count=0)
+        getcount() = return count
+    end
     Q = zeros(4, 4)
     @test_throws MethodError CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)  # type must enforce symmetry
     Q = CoordinateSplittingPTrees.SymmetricArray(Q)
@@ -671,10 +674,10 @@ end
         @test isnan(Q[i,i])
     end
     @test count == 12
-    Q = sparse([1,1,2,2,3,3,4,1], [1,2,2,3,3,4,4,4], zeros(8))
+    Q = sparse([1,1,2,2,3,3,4], [1,2,2,3,3,4,4], zeros(7))  # mimics SymTridiagonal aft. symmetrizing
     @test_throws MethodError CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
     Q = CoordinateSplittingPTrees.SymmetricArray(Q)
-    @test CoordinateSplittingPTrees.nnz_offdiag_sym(Q) == 4
+    @test CoordinateSplittingPTrees.nnz_offdiag_sym(Q) == 3
     count = 0
     CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
     for i = 1:3
@@ -682,6 +685,13 @@ end
         @test Q[i+1,i] ≈ -1
         @test isnan(Q[i,i])
     end
+    @test count == 12
+    # Add an extra element at [1,4]
+    Q = sparse([1,1,2,2,3,3,4,1], [1,2,2,3,3,4,4,4], zeros(8))
+    Q = CoordinateSplittingPTrees.SymmetricArray(Q)
+    @test CoordinateSplittingPTrees.nnz_offdiag_sym(Q) == 4
+    count = 0
+    CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
     @test count == 16
 end
 

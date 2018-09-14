@@ -4,6 +4,7 @@ module CoordinateSplittingPTrees
 
 using AbstractTrees  # for display of tree structures
 import BlossomV      # we use matching to select dimension-pairs (see cs2.jl)
+using DataStructures # for choosing the lowest-valued points
 using Compat
 
 export Box, World
@@ -162,15 +163,24 @@ chosen using `partition_interval`.
 See [`addpoint!`](@ref) for additional information.
 """
 function addpoint_distinct!(root, x, metagen::Function)
-    xcopy = copy(x)
+    xd = _addpoint_distinct(root, x)
+    addpoint!(root, xd, metagen)
+end
+function addpoint_distinct!(root, x, dimlists, metagen::Function)
+    xd = _addpoint_distinct(root, x)
+    addpoint!(root, xd, dimlists, metagen)
+end
+
+function _addpoint_distinct(root, x)
+    xd = copy(x)
     leaf = find_leaf_at(root, x)
     xleaf = position(leaf)
     for i = 1:ndims(root)
         if x[i] == xleaf[i]
-            xcopy[i] = partition_interval(x[i], leaf, i)
+            xd[i] = partition_interval(x[i], leaf, i)
         end
     end
-    addpoint!(root, xcopy, metagen)
+    return xd
 end
 
 """
