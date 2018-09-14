@@ -235,7 +235,7 @@ mutable struct Box{p,T,M,L,P}
         end
         local self, others
         let parent = parent
-            self, others = box(parent, 0), ntuple(i->box(parent, i), Val{L})
+            self, others = box(parent, 0), ntuple(i->box(parent, i), Val(L))
         end
         parent.split = Split{p,T}(splitdims, xs, self, Children(others, metas))
         return others
@@ -322,7 +322,7 @@ isnonleaf(box) = !isleaf(box)
 
 function Base.show(io::IO, box::Box)
     print(io, "Box")
-    showcompact(io, meta(box))
+    show(IOContext(io, :compact=>true), meta(box))
     print(io, "@", position(box))
 end
 
@@ -355,7 +355,7 @@ AbstractTrees.printnode(io::IO, box::Box) = isleaf(box) ? print(io, box) : print
 # The iterators in AbstractTrees are not sufficiently high-performance
 # for our needs. Moreover we need customized visitation patterns.
 
-Base.iteratorsize(::Type{<:Box}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{<:Box}) = Base.SizeUnknown()
 
 # Iterator API: support boxtype and getbox
 boxtype(::Type{B}) where B<:Box = B
@@ -369,7 +369,7 @@ end
 
 abstract type CSpTreeIterator end
 
-Base.iteratorsize(::Type{<:CSpTreeIterator}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{<:CSpTreeIterator}) = Base.SizeUnknown()
 
 struct SplitIterator{B<:Box} <: CSpTreeIterator
     base::B
@@ -379,6 +379,8 @@ Base.eltype(::Type{SplitIterator{B}}) where B<:Box{p,T,M,L} where {p,T,M,L} =
 
 maxchildren(splits::SplitIterator) = maxchildren(splits.base)
 
+# ClimbingState supports `splits(box)` and is designed to descend and then
+# visit siblings as it ascends.
 struct ClimbingState{B<:Box,BI,BS}
     box::B                  # current top-level node
     visited::Bool           # true if box.split has already been returned
@@ -425,7 +427,7 @@ end
 function IGE{T}(n::Integer) where T
     coefs = fill(zero(T), n, n)
     rhs = fill(zero(T), n)
-    rowtmp = Vector{T}(n)
+    rowtmp = Vector{T}(undef, n)
     return IGE{T}(coefs, rhs, rowtmp)
 end
 
@@ -436,8 +438,8 @@ end
 struct SymmetricArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
     data::A
 end
-SymmetricArray(A::AbstractArray{T,N}) where {T,N} =
-    SymmetricArray{T,N,typeof(A)}(A)
+# SymmetricArray(A::AbstractArray{T,N}) where {T,N} =
+#     SymmetricArray{T,N,typeof(A)}(A)
 
 Base.size(S::SymmetricArray) = size(S.data)
 
@@ -459,6 +461,6 @@ tuplesort(dims::NTuple{N,Int}) where N = (sort([dims...])...,)
 
 # Convenience functions
 mtrx(S::SymmetricArray{T,2}) where T = Symmetric(S.data, :L)
-Base.eig(S::SymmetricArray{T,2}) where T = eig(mtrx(S))
+LinearAlgebra.eigen(S::SymmetricArray{T,2}) where T = LinearAlgebra.eigen(mtrx(S))
 
 const SymmetricMatrix{T} = Union{Symmetric{T}, SymTridiagonal{T}}

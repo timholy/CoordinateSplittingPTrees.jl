@@ -19,7 +19,7 @@ function splitprint(io::IO, box::Box)
         print(io, ']')
     end
 end
-splitprint(box::Box) = splitprint(STDOUT, box)
+splitprint(box::Box) = splitprint(stdout, box)
 
 """
     splitprint_colored([io::IO], box, innerbox)
@@ -29,12 +29,12 @@ of parents of `innerbox` are highlighted in cyan.
 """
 function splitprint_colored(io::IO, box::Box, thisbox::Box, allparents=get_allparents(thisbox))
     if isleaf(box)
-        box == thisbox ? print_with_color(:light_red, io, 'l') : print(io, 'l')
+        box == thisbox ? printstyled(io, 'l', color=:light_red) : print(io, 'l')
     else
         if box == thisbox
-            print_with_color(:light_red, io, box.split.dims)
+            printstyled(io, box.split.dims, color=:light_red)
         elseif box ∈ allparents
-            print_with_color(:cyan, io, box.split.dims)
+            printstyled(io, box.split.dims, color=:cyan)
         else
             print(io, box.split.dims)
         end
@@ -47,7 +47,7 @@ function splitprint_colored(io::IO, box::Box, thisbox::Box, allparents=get_allpa
         print(io, ']')
     end
 end
-splitprint_colored(box::Box, thisbox::Box) = splitprint_colored(STDOUT, box, thisbox)
+splitprint_colored(box::Box, thisbox::Box) = splitprint_colored(stdout, box, thisbox)
 
 function get_allparents(box)
     allparents = Set{typeof(box)}()
@@ -67,7 +67,7 @@ end
 
 Return the n-dimensional position vector `x` at which this box was evaluated.
 """
-Base.position(box::Box{p,T}) where {p,T} = position!(Vector{T}(uninitialized, ndims(box)), box)
+Base.position(box::Box{p,T}) where {p,T} = position!(Vector{T}(undef, ndims(box)), box)
 
 """
     x = position(box, d::Integer)
@@ -81,8 +81,8 @@ function Base.position(box::Box, d::Integer)
         childindex = box.childindex
         if !isself(box)
             split = p.split
-            i = findfirst(split.dims, d)
-            if i > 0 && ((childindex >> (i-1))&0x01) != 0x00
+            i = findfirst(isequal(d), split.dims)
+            if i !== nothing && ((childindex >> (i-1))&0x01) != 0x00
                 return split.xs[i]
             end
         end
@@ -97,11 +97,11 @@ end
 
 Fill `x` with the n-dimensional position of `box`. Including `filled` avoids allocation of temporaries.
 """
-position!(x, box::Box) = position!(x, Vector{Bool}(uninitialized, ndims(box)), box)
+position!(x, box::Box) = position!(x, Vector{Bool}(undef, ndims(box)), box)
 
 function position!(x, filled, box::Box)
     N = ndims(box)
-    @assert(linearindices(x) == linearindices(filled) == Base.OneTo(N))
+    @assert(LinearIndices(x) == LinearIndices(filled) == Base.OneTo(N))
     # Fill in default values (those corresponding to root)
     for i = 1:N
         x[i] = baseposition(box.world.position[i])
@@ -133,7 +133,7 @@ end
 Compute the bounds (edge positions) of `box`. `bbs[d] = (lower, upper)` for dimension `d`.
 """
 function boxbounds(box::Box{p,T}) where {p,T}
-    bbs = Vector{Tuple{T,T}}(uninitialized, ndims(box))
+    bbs = Vector{Tuple{T,T}}(undef, ndims(box))
     return boxbounds!(bbs, box)
 end
 
@@ -149,8 +149,8 @@ function boxbounds(box::Box, d::Integer)
     while !isroot(box) && !(lfilled & ufilled)
         p = box.parent
         split = p.split
-        i = findfirst(split.dims, d)
-        if i > 0
+        i = findfirst(isequal(d), split.dims)
+        if i !== nothing
             xs, xo = position(split.self, d), split.xs[i]
             x = position(box0, d)
             # @show p lower upper lfilled ufilled xs xo x
@@ -174,10 +174,9 @@ end
 
 Fill `bbs` with the bounds (edge positions) of `box`.
 """
-
 function boxbounds!(bbs, box::Box)
-    lfilled = Vector{Bool}(uninitialized, ndims(box))
-    ufilled = Vector{Bool}(uninitialized, ndims(box))
+    lfilled = Vector{Bool}(undef, ndims(box))
+    ufilled = Vector{Bool}(undef, ndims(box))
     boxbounds!(bbs, lfilled, ufilled, box)
 end
 
@@ -223,7 +222,7 @@ collinear with `position(box)` along dimension `i`. Being collinear
 along dimension `i` implies that `position(otherbox, j) == position(box, j)`
 for any dimension `j != i`.
 """
-ncollinear(box::Box, top::Box=getroot(box)) = ncollinear!(Vector{Int}(uninitialized, ndims(box)), Vector{Bool}(uninitialized, ndims(box)), box, top)
+ncollinear(box::Box, top::Box=getroot(box)) = ncollinear!(Vector{Int}(undef, ndims(box)), Vector{Bool}(undef, ndims(box)), box, top)
 
 function ncollinear!(nc::AbstractVector{Int}, filled::AbstractVector{Bool}, box::Box, top::Box=getroot(box))
     fill!(nc, 0)
@@ -257,9 +256,9 @@ function _ncollinear!(nc, box, splitdim)
         return nc
     end
     split = box.split
-    i = findfirst(split.dims, splitdim)
+    i = findfirst(isequal(splitdim), split.dims)
     _ncollinear!(nc, split.self, splitdim)
-    i == 0 && return nc
+    i === nothing && return nc
     childidx = 1 << (i-1)
     _ncollinear!(nc, split.others.children[childidx], splitdim)
 end
@@ -312,8 +311,8 @@ function meta(box::Box)
     return box.parent.split.others.metas[box.childindex]
 end
 
-getchild(split, childidx) = childidx == 0 ? split.self :
-                                            split.others.children[childidx]
+getchild(split::Split, childidx) = childidx == 0 ? split.self :
+                                                   split.others.children[childidx]
 
 # """
 #     boxp = find_parent_with_splitdim(box, splitdim::Integer)
@@ -542,5 +541,5 @@ end
 # useful for debugging
 function Base.show(io::IO, state::ClimbingState)
     println(io, "box $(state.box), visited $(state.visited), splitdims $(state.box.split.dims), skipidx $(state.skipchildindex), childidx $(state.childindex)")
-    print(io, "branchiter $(state.branchiter.root), branch-is-done $(done(state.branchiter, state.branchstate))")
+    print(io, "branchiter $(state.branchiter), branch-is-done $(iterate(state.branchiter, state.branchstate)===nothing)")
 end

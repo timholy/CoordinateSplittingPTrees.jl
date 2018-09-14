@@ -8,10 +8,10 @@ end
 
 function collinear_dims(X, x0)
     issame = X .== x0
-    nsame = sum(issame, 1)
+    nsame = sum(issame, dims=1)
     n = length(x0)
     nc = zeros(Int, n)
-    for k in Compat.axes(X, 2)
+    for k in axes(X, 2)
         nsame[1,k] == n-1 || continue
         i = findfirst(x->!x, view(issame, :, k))
         nc[i] += 1
@@ -95,7 +95,7 @@ anydups(t::Tuple{Int,Int}) = t[1] == t[2]
 anydups(t::Tuple{Int,Int,Int}) = t[1] == t[2] || t[1] == t[3] || t[2] == t[3]
 
 function testequal_offdiag(Cp, B)
-    for I in CartesianRange(size(B))
+    for I in CartesianIndices(size(B))
         if !anydups(I.I)
             @test Cp[I] ≈ B[I]
         end
@@ -104,7 +104,7 @@ function testequal_offdiag(Cp, B)
 end
 
 function hasnan_offdiag(Cp)
-    for I in CartesianRange(size(Cp))
+    for I in CartesianIndices(size(Cp))
         !anydups(I.I) && isnan(Cp[I]) && return true
     end
     return false
