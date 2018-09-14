@@ -1,74 +1,138 @@
 boxcoordtype(::Type{T}) where T<:AbstractFloat = T
 boxcoordtype(::Type{T}) where T<:Real = Float64
 
-const Vec2{T<:Real} = Union{Tuple{T,T}, AbstractVector{T}}
-
-check2(v::Vec2) = v
-function check2(v::AbstractVector)
-    @noinline throwdm(v) = throw(DimensionMismatch("vector must have length 2, got axis range $(Base.indices1(v))"))
-    Base.indices1(v) == Base.OneTo(2) || throwdm(v)
-    return v
-end
-
-
 # The overall domain of the problem, plus initial evaluation locations
 # and the function value at the initial point. Every box within the
 # world will hold a link to this structure
-struct World{T<:Real,M}
+struct World{T<:Real,P,M}
     lower::Vector{T}      # lower bounds on parameters
     upper::Vector{T}      # upper bounds on parameters
-    splits::Vector{Tuple{T,T}}  # initial set of positions along each dimension
+    position::Vector{P}   # initial position data along each dimension
     meta::M               # metadata at baseposition (see below)
 
-    function World{T,M}(lower, upper, splits, meta) where {T,M}
+    function World{T,P,M}(lower, upper, position, meta) where {T,P,M}
         # Validate the inputs
         N = length(lower)
-        length(lower) == length(upper) == length(splits) == N ||
-            throw(DimensionMismatch("lower, upper, and splits must have length $N (got $(length(lower)), $(length(upper)), and $(length(splits))"))
-        for s in splits
-            s[1] != s[2] || throw(ArgumentError("split points must be distinct, got $s"))
+        length(lower) == length(upper) == length(position) == N ||
+            throw(DimensionMismatch("lower, upper, and position must have length $N (got $(length(lower)), $(length(upper)), and $(length(position))"))
+        for i = 1:N
+            world_validate(position[i], lower[i], upper[i])
         end
-        return new{T,M}(lower, upper, splits, meta)
+        return new{T,P,M}(lower, upper, position, meta)
     end
 end
 
-World(lower::AbstractVector{T}, upper::AbstractVector{T}, splits::AbstractVector{MM}, meta) where {T<:Real,MM<:Vec2{T}} =
-    World{boxcoordtype(T), typeof(meta)}(lower, upper, splits, meta)
-
 """
-    world = World(lower::AbstractVector, upper::AbstractVector, splits::AbstractVector{<:Tuple{Real,Real}}, meta)
+    world = World(lower::AbstractVector, upper::AbstractVector, position::AbstractVector, meta)
 
 Return a structure representing the rectangular domain and
-initialization of a SplitCoordinatewiseTree.  `lower` and `upper` are
-the bounds of the coordinates, `splits` is a vector of coordinate
-2-values,
+initialization of a CoordinateSplittingPTree.  `lower` and `upper` are
+the bounds of the coordinates, `position` is a vector that contains
+position information---in the simplest case this may be just the
+coordinates of an initial point. `meta` is the metadata at `position`.
 
-    splits = [(x1, x2), (y1, y2), ...]
-
-representing a set of potential locations for box placement along each
-coordinate.  `meta` is the metadata at `baseposition(world)`, aka
-`[x1, y1, ...]` (see [`baseposition`](@ref))).
+In general, `position[i]` can contain whatever information you require
+about dimension `i`. Packages may specialize the behavior of `World`
+for different types of information---see the source for details.
 """
-function World(lower::AbstractVector, upper::AbstractVector, splits::AbstractVector, meta)
+function World(lower::AbstractVector, upper::AbstractVector, position::AbstractVector, meta)
     T = promote_type(eltype(lower), eltype(upper))
-    for s in splits
-        @assert(s isa Tuple{Real,Real} || (s isa AbstractVector && length(s) == 2))
-        T = promote_type(T, typeof(s[1]), typeof(s[2]))
+    for x in position
+        T = promote_type(T, world_eltype(x))
     end
-    return World{boxcoordtype(T),typeof(meta)}(lower, upper, splits, meta)
+    Tb = boxcoordtype(T)
+    positionb = world_ofeltype.(Tb, position)
+    metaval = metagen(meta, baseposition(positionb))
+    return World{Tb,eltype(positionb),typeof(metaval)}(lower, upper, positionb, metaval)
 end
 
-Base.ndims(world::World) = length(world.splits)
+function World(position::AbstractVector{T}, meta) where T<:Real
+    Tb = boxcoordtype(T)
+    n = length(position)
+    return World(fill(Tb(-Inf), n), fill(Tb(Inf), n), position, meta)
+end
 
-"""
-    x = baseposition(world)
+metagen(meta, x) = meta
+metagen(f::Function, x) = f(x)
 
-Return the initial box location, defined as the first element of each
-coordinate of `world.splits` (see [`World`](@ref)).
-"""
-baseposition(world::World{T}) where T = baseposition(T, world.splits)
-baseposition(::Type{T}, splits::AbstractVector) where T = T[s[1] for s in splits]
-baseposition(splits::AbstractVector) = [s[1] for s in splits]
+## API for extending World:
+#  - `baseposition([T], position)` must return an actual position,
+#    i.e., a vector of real-valued numbers that lie between `lower`
+#    and `upper`. If `T` is supplied it must be used as the eltype of
+#    the returned vector.
+#  - `baseposition(position[i])` should return the position in dimension `i`.
+#  - `world_eltype(position[i])` must return a suitable element type
+#    to be used by `baseposition`
+#  - `world_ofeltype(T, position[i])` must convert to world_eltype `T`
+#  - `world_validate(position[i], lower[i], upper[i])` should throw an
+#    error if `position[i]` is invalid, and otherwise return `nothing`.
+#  - `world_newposition(x, position[i], lower[i], upper[i])` should
+#    return a valid location different from `x`.
+
+baseposition(x::Real) = x
+baseposition(position::AbstractVector{<:Real}) = position
+baseposition(::Type{T}, position::AbstractVector{<:Real}) where T<:Real =
+    T[T(x) for x in position]
+world_eltype(x::T) where T<:Real = T
+world_ofeltype(::Type{T}, x::Real) where T<:Real = T(x)
+function world_validate(x::Real, l::Real, u::Real)
+    l <= x <= u || throw(ArgumentError("position $x is not within bounds [$l, $u]"))
+    return nothing
+end
+function world_newposition(x, s::Real, l::Real, u::Real)
+    if x != s
+        return s
+    end
+    return x + 1 < u ? x + 1 :
+           x - 1 >= l ? x - 1 : error("no valid value found. Consider using `partition_interval` to find a new point.")
+end
+
+# We're also going to "reserve" the behavior of World when position[i]
+# is a 2-tuple (as used by QuadSplit.jl). Since tuples are Base types,
+# doing it in this package avoids risk of type piracy.
+
+baseposition(s::Tuple{Real,Real}) = s[1]
+baseposition(::Type{T}, splits::AbstractVector{TT}) where {T,TT<:Tuple{Real,Real}} =
+    T[s[1] for s in splits]
+baseposition(splits::AbstractVector{TT}) where TT<:Tuple{Real,Real} =
+    [s[1] for s in splits]
+
+world_eltype(v::Tuple{Real,Real}) = promote_type(typeof(v[1]), typeof(v[2]))
+world_ofeltype(::Type{T}, v::Tuple{Real,Real}) where T = (T(v[1]), T(v[2]))
+
+function world_validate(s::Tuple{Real,Real}, l::Real, u::Real)
+    s[1] != s[2] || throw(ArgumentError("split points must be distinct, got $s"))
+    l <= s[1] <= u || throw(ArgumentError("position $(s[1]) is not within bounds [$l, $u]"))
+    l <= s[2] <= u || throw(ArgumentError("position $(s[2]) is not within bounds [$l, $u]"))
+    return nothing
+end
+
+world_newposition(x, s::Tuple{Real,Real}, l::Real, u::Real) = x == s[1] ? s[2] : s[1]
+
+
+function World(lower::AbstractVector{T}, upper::AbstractVector{T}, splits::AbstractVector{Tuple{T,T}}, meta) where T<:Real
+    Tb = boxcoordtype(T)
+    metaval = metagen(meta, baseposition(Tb, splits))
+    return World{Tb, Tuple{Tb,Tb}, typeof(metaval)}(lower, upper, splits, metaval)
+end
+
+function World(lower::AbstractVector{Tl}, upper::AbstractVector{Tu}, splits::AbstractVector{Tuple{T,T}}, meta) where {Tl<:Real,Tu<:Real,T<:Real}
+    Tb = boxcoordtype(promote_type(Tl,Tu,T))
+    metaval = metagen(meta, baseposition(Tb, splits))
+    return World{Tb, Tuple{Tb,Tb}, typeof(metaval)}(lower, upper, splits, metaval)
+end
+
+function World(splits::AbstractVector{Tuple{T,T}}, meta) where T<:Real
+    Tb = boxcoordtype(T)
+    metaval = metagen(meta, baseposition(Tb, splits))
+    n = length(splits)
+    return World{Tb, Tuple{Tb,Tb}, typeof(metaval)}(fill(Tb(-Inf), n), fill(Tb(Inf), n), splits, metaval)
+end
+
+
+Base.ndims(world::World) = length(world.position)
+baseposition(world::World{T}) where T = baseposition(T, world.position)
+
 
 ## Box
 
@@ -112,23 +176,30 @@ Split{p,T}(dims::NTuple{p,Integer},
            others::Children{M,B,L}) where {T,p,M,B,L} =
    Split{p,T,M,B,L}(dims, xs, self, others)
 
-mutable struct Box{p,T,M,L}
-    world::World{T,M}        # the overall problem domain
-    parent::Box{p,T,M,L}     # the node above this one
-    childindex::UInt8        # which of parent's children is this? (0=self)
-    split::Split{p,T,M,Box{p,T,M,L},L}  # undefined if this box is a leaf node
+boxtype(::Type{Split{p,T,M,B,L}}) where {p,T,M,B,L} = B
+function Base.show(io::IO, split::Split)
+    print(io, "Split(")
+    show(io, split.self)
+    print(io, " along $(split.dims) at $(split.xs))")
+end
 
-    function Box{p,T,M,L}(world::World{T,M}) where {p,T,M,L}
+mutable struct Box{p,T,M,L,P}
+    world::World{T,P,M}      # the overall problem domain
+    parent::Box{p,T,M,L,P}   # the node above this one
+    childindex::UInt8        # which of parent's children is this? (0=self)
+    split::Split{p,T,M,Box{p,T,M,L,P},L}  # undefined if this box is a leaf node
+
+    function Box{p,T,M,L,P}(world::World{T,P,M}) where {p,T,M,L,P}
         p > 8 && error("degree must be less than or equal to 8 (change childindex::UInt8 for p>8)")
-        root = new{p,T,M,L}(world)
+        root = new{p,T,M,L,P}(world)
         root.parent = root
         root.childindex = 0
         return root
     end
 
-    function Box{p,T,M,L}(parent::Box{p,T,M,L}, splitdims::NTuple{p,Integer}, xs::NTuple{p,Real}, metas::NTuple{L,M}) where {p,T,M,L}
-        function box(parent::Box{p,T,M,L}, childindex::Integer) where {p,T,M,L}
-            return new{p,T,M,L}(parent.world, parent, childindex)
+    function Box{p,T,M,L,P}(parent::Box{p,T,M,L,P}, splitdims::NTuple{p,Integer}, xs::NTuple{p,Real}, metas::NTuple{L,M}) where {p,T,M,L,P}
+        function box(parent::Box{p,T,M,L,P}, childindex::Integer) where {p,T,M,L,P}
+            return new{p,T,M,L,P}(parent.world, parent, childindex)
         end
 
         @noinline throw0(sd, mxd) = error("got split along dimension $sd, max allowed is $mxd")
@@ -170,7 +241,7 @@ mutable struct Box{p,T,M,L}
         return others
     end
 end
-Box{p}(world::World{T,M}) where {p,T,M} = Box{p,T,M,calcL(Val(p))}(world)
+Box{p}(world::World{T,P,M}) where {p,T,M,P} = Box{p,T,M,calcL(Val(p)),P}(world)
 
 """
     root = Box{p}(world::World)
@@ -192,15 +263,15 @@ where `xp` is `position(parent)[splitdims]`.  For dimensions not
 listed in `splitdims`, the positions of these children are all
 identical to the parent evaluation point.
 """
-Box(parent::Box{p,T,M,L}, splitdims::NTuple{p,Integer}, xs::NTuple{p,Real}, metas::NTuple{L,Any}) where {p,T,M,L} =
-    Box{p,T,M,L}(parent, splitdims, xs, metas)
+Box(parent::Box{p,T,M,L,P}, splitdims::NTuple{p,Integer}, xs::NTuple{p,Real}, metas::NTuple{L,Any}) where {p,T,M,L,P} =
+    Box{p,T,M,L,P}(parent, splitdims, xs, metas)
 
 Box(parent::Box{1,T,M,1}, splitdim::Integer, x::Real, meta) where {T,M} =
     Box(parent, (splitdim,), (x,), (meta,))
 
 # You can supply fewer than p dimensions, in which case we fill in
 # with fictive dimensions
-function Box(parent::Box{p,T,M,L}, splitdims::NTuple{k,Integer}, xs::NTuple{k,Real}, metas) where {p,T,M,k,L}
+function Box(parent::Box{p,T,M,L,P}, splitdims::NTuple{k,Integer}, xs::NTuple{k,Real}, metas) where {p,T,M,k,L,P}
     0 < k <= p || throw(DimensionMismatch("got $k dimensions, max allowed is $p"))
     nmeta = 2^k-1
     length(metas) == nmeta || error("got $(length(metas)) metadatas for $k split dimensions, need $nmeta")
@@ -219,11 +290,21 @@ function Box(parent::Box{p,T,M,L}, splitdims::NTuple{k,Integer}, xs::NTuple{k,Re
             return i == 0 ? parentmeta : metas[i]
         end
     end
-    return Box{p,T,M,L}(parent, splitdimspad, xspad, metaspad)
+    return Box{p,T,M,L,P}(parent, splitdimspad, xspad, metaspad)
 end
 
 
+"""
+    isroot(box)
+
+Return `true` if `box` is the root-node of a CSp-tree.
+"""
 isroot(box::Box) = box.parent == box
+"""
+    isleaf(box)
+
+Return `true` if `box` has no children, and hence is a leaf-node of a CSp-tree.
+"""
 isleaf(box::Box) = !isdefined(box, :split)
 isself(box::Box)  = !isroot(box) && box.parent.split.self == box
 isother(box::Box) = !isroot(box) && box.parent.split.self != box
@@ -234,9 +315,10 @@ degree(::Type{B}) where B<:Box{p} where p = p
 degree(box::Box) = degree(typeof(box))
 boxcoordtype(::Type{B}) where B<:Box{p,T} where {p,T} = T
 boxcoordtype(box::Box) = boxcoordtype(typeof(box))
-maxchildren(::Type{Box{p,T,M,L}}) where {p,T,M,L} = L+1
+maxchildren(::Type{Box{p,T,M,L,P}}) where {p,T,M,L,P} = L+1
 maxchildren(::Type{B}) where B<:Box{p} where p = 1<<p  # for partial type like Box{2}
 maxchildren(box::Box) = maxchildren(typeof(box))
+isnonleaf(box) = !isleaf(box)
 
 function Base.show(io::IO, box::Box)
     print(io, "Box")
@@ -264,6 +346,7 @@ function Base.next(iter::ChildrenIterator, s::Int)
     item = s == 0 ? split.self : split.others.children[s]
     return (item, s+=1)
 end
+Base.length(iter::ChildrenIterator) = maxchildren(iter.box)
 
 AbstractTrees.printnode(io::IO, box::Box) = isleaf(box) ? print(io, box) : print(io, box.split.dims)
 
@@ -274,6 +357,11 @@ AbstractTrees.printnode(io::IO, box::Box) = isleaf(box) ? print(io, box) : print
 
 Base.iteratorsize(::Type{<:Box}) = Base.SizeUnknown()
 
+# Iterator API: support boxtype and getbox
+boxtype(::Type{B}) where B<:Box = B
+getbox(box::Box) = box
+
+# state type for most iterators
 struct VisitorState{B<:Box}
     box::B
     childindex::Int
@@ -283,16 +371,6 @@ abstract type CSpTreeIterator end
 
 Base.iteratorsize(::Type{<:CSpTreeIterator}) = Base.SizeUnknown()
 
-struct LeafIterator{B<:Box} <: CSpTreeIterator
-    root::B
-end
-Base.eltype(::Type{LeafIterator{B}}) where B<:Box = B
-
-struct NonleafIterator{B<:Box} <: CSpTreeIterator
-    root::B
-end
-Base.eltype(::Type{NonleafIterator{B}}) where B<:Box = B
-
 struct SplitIterator{B<:Box} <: CSpTreeIterator
     base::B
 end
@@ -301,21 +379,23 @@ Base.eltype(::Type{SplitIterator{B}}) where B<:Box{p,T,M,L} where {p,T,M,L} =
 
 maxchildren(splits::SplitIterator) = maxchildren(splits.base)
 
-struct ClimbingState{B<:Box}
+struct ClimbingState{B<:Box,BI,BS}
     box::B                  # current top-level node
     visited::Bool           # true if box.split has already been returned
     skipchildindex::UInt8   # index of branch from which we climbed
     childindex::Int         # index of branch we're currently exploring
-    branchiter::NonleafIterator{B}  # iterator for the current branch
-    branchstate::VisitorState{B}    # state for the current branch
+    branchiter::BI          # iterator for the current branch
+    branchstate::BS         # state for the current branch
 end
 
 # Create a state that marks `box`'s branch as having been visited
 ClimbingState(box::Box, visited::Bool) = ClimbingState(box, visited, box.childindex)
 
 function ClimbingState(box::B, visited::Bool, skipchildindex::Integer) where B<:Box
-    iter = NonleafIterator(box)
-    branchstate = VisitorState(box, maxchildren(box))
+    iter = Iterators.filter(isnonleaf, box)
+    # Initialize branchstate to be at the end of iter.
+    # Here we have to know the representation of the Iterators.Filter state object (ugh).
+    branchstate = (true, box, VisitorState(box, maxchildren(box)))
     if isroot(box)
         @assert(!visited)
         return ClimbingState(box, true, skipchildindex, maxchildren(box), iter, branchstate)
@@ -324,6 +404,61 @@ function ClimbingState(box::B, visited::Bool, skipchildindex::Integer) where B<:
 end
 
 # Replace the branch state
-ClimbingState(cstate::ClimbingState{B}, vstate::VisitorState) where B =
+ClimbingState(cstate::ClimbingState{B,BI,BS}, vstate::BS) where {B,BI,BS} =
     ClimbingState(cstate.box, cstate.visited, cstate.skipchildindex,
                   cstate.childindex, cstate.branchiter, vstate)
+
+struct ChainIterator{B<:Box} <: CSpTreeIterator
+    base::B
+end
+Base.eltype(::Type{ChainIterator{B}}) where B<:Box{p,T,M,L} where {p,T,M,L} =
+    Split{p,T,M,B,L}
+
+## Incremental Gaussian Elimination
+
+struct IGE{T}
+    coefs::Matrix{T}
+    rhs::Vector{T}
+    rowtmp::Vector{T}
+end
+
+function IGE{T}(n::Integer) where T
+    coefs = fill(zero(T), n, n)
+    rhs = fill(zero(T), n)
+    rowtmp = Vector{T}(n)
+    return IGE{T}(coefs, rhs, rowtmp)
+end
+
+## SymmetricArray
+
+# A "utility type" (not really core to this package) to make it easy
+# to work with higher-order polynomial models.
+struct SymmetricArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
+    data::A
+end
+SymmetricArray(A::AbstractArray{T,N}) where {T,N} =
+    SymmetricArray{T,N,typeof(A)}(A)
+
+Base.size(S::SymmetricArray) = size(S.data)
+
+function Base.getindex(S::SymmetricArray{T,N}, I::Vararg{Int,N}) where {T,N}
+    J = CoordinateSplittingPTrees.tuplesort(I)
+    return S.data[J...]
+end
+
+function Base.setindex!(S::SymmetricArray{T,N}, val, I::Vararg{Int,N}) where {T,N}
+    J = tuplesort(I)
+    S.data[J...] = val
+    return val
+end
+
+tuplesort(dims::Tuple{})        = dims
+tuplesort(dims::Tuple{Int})     = dims
+tuplesort(dims::Tuple{Int,Int}) = dims[1] > dims[2] ? (dims[2], dims[1]) : dims
+tuplesort(dims::NTuple{N,Int}) where N = (sort([dims...])...,)
+
+# Convenience functions
+mtrx(S::SymmetricArray{T,2}) where T = Symmetric(S.data, :L)
+Base.eig(S::SymmetricArray{T,2}) where T = eig(mtrx(S))
+
+const SymmetricMatrix{T} = Union{Symmetric{T}, SymTridiagonal{T}}

@@ -41,12 +41,13 @@ prohibitive for `n` in the hundreds and extremely costly even for much
 more modest problems. Powell
 [described](https://www.tol-project.org/export/3776/tolp/OfficialTolArchiveNetwork/NonLinGloOpt/doc/NEWUOA.pdf)
 a method for updating a quadratic model with a new data point; this
-method has a cost `~O(n^4)` per update, and for local DFO this
-represents a significant improvement. However, this method is less
-attractive in the context of global optimization, where multiple
-regions in space may be pursued simultaneously but for which one may
-not wish to maintain storage of `O(n^2)` parameters for many different
-local models.
+method has a cost in the range `O(n^2)--O(n^4)` per update depending
+on the amount of history maintained, and for local DFO this represents
+a significant improvement. However, this method is less attractive in
+the context of global optimization, where multiple regions in space
+may be pursued simultaneously but for which one may not wish to
+maintain storage of `O(n^2)` parameters for many different local
+models.
 
 ## Reducing the burden with CSp-trees
 

@@ -75,7 +75,7 @@ Base.position(box::Box{p,T}) where {p,T} = position!(Vector{T}(uninitialized, nd
 Return the position of `box` in dimension `d`.
 """
 function Base.position(box::Box, d::Integer)
-    default = box.world.splits[d][1]
+    default = baseposition(box.world.position[d])
     while !isroot(box)
         p = box.parent
         childindex = box.childindex
@@ -104,7 +104,7 @@ function position!(x, filled, box::Box)
     @assert(linearindices(x) == linearindices(filled) == Base.OneTo(N))
     # Fill in default values (those corresponding to root)
     for i = 1:N
-        x[i] = box.world.splits[i][1]
+        x[i] = baseposition(box.world.position[i])
     end
     # Traverse the tree to see which entries have changed since root
     fill!(filled, false)
@@ -155,6 +155,7 @@ function boxbounds(box::Box, d::Integer)
             x = position(box0, d)
             # @show p lower upper lfilled ufilled xs xo x
             xl, xu = xs < xo ? (xs, xo) : (xo, xs)
+            # @show xl x xu
             if xl <= x <= xu
                 if !lfilled && xl < x
                     lower, lfilled = max((xl+xu)/2, (xl+x)/2), true
@@ -212,46 +213,6 @@ function boxbounds!(bbs, lfilled, ufilled, box::Box)
         box = p
     end
     bbs
-end
-
-"""
-    scale = boxscale(box)
-
-`scale[i]` is the length of `box` along dimension `i`, if finite, or
-the separation between `box` and its nearest neighbor along dimension
-`i`.
-"""
-function boxscale(box::Box{p,T}) where {p,T}
-    n = ndims(box)
-    scale = Vector{T}(uninitialized, n)
-    filled = falses(n)
-    nfilled = 0
-    while !isroot(box) && nfilled < n
-        box = box.parent
-        split = box.split
-        for (sd, x) in zip(split.dims, split.xs)
-            sd > n && continue   # fictive dimension
-            if !filled[sd]
-                bb = boxbounds(box, sd)
-                if isfinite(bb[1]) && isfinite(bb[2])
-                    scale[sd] = bb[2] - bb[1]
-                else
-                    scale[sd] = abs(position(box.split.self, sd) - x)
-                end
-                filled[sd] = true
-                nfilled += 1
-            end
-        end
-    end
-    if nfilled < ndims(box)
-        for i = 1:ndims(box)
-            if !filled[i]
-                s = box.world.splits[i]
-                scale[i] = abs(s[2] - s[1])
-            end
-        end
-    end
-    return scale
 end
 
 """
@@ -382,6 +343,7 @@ function find_leaf_at(root::Box, x)
     @noinline throwdmm(n, l) = throw(DimensionMismatch("tree has $n dimensions, got $l"))
     n = ndims(root)
     length(x) == n || throwdmm(n, length(x))
+    # Check that x is in the interior of root
     for i = 1:n
         bb = boxbounds(root, i)
         ((bb[1] <= x[i]) && (x[i] < bb[2] || (x[i] == bb[2] && bb[2] == root.world.upper[i]))) || throwbb(bb, x[i], i)
@@ -389,13 +351,26 @@ function find_leaf_at(root::Box, x)
     isleaf(root) && return root
     while !isleaf(root)
         split = root.split
-        childidx = 0
+        childidx = 0  # assign using bitwise arithmetic
         for j = 1:degree(root)
             sd, xother = split.dims[j], split.xs[j]
             sd > n && continue
             xself = position(root, sd)
             xsd = x[sd]
-            childidx |= (abs(xsd - xother) <= abs(xsd - xself)) << (j-1)
+            # We need to choose the child where, for bb = boxbounds(child, sd),
+            # we have bb[1] <= xsd < bb[2]. This is a requirement if we plan
+            # to split child using the positions in x.
+            #
+            # Consequently this bit should be set according to
+            #
+            #                  |   xother > xself   |    xother < xself
+            #    --------------|--------------------|---------------------
+            #    xsd >= xmid   |         1          |           0
+            #    --------------|--------------------|---------------------
+            #    xsd < xmid    |         0          |           1
+            #
+            # where xmid = (xself+xother)/2.
+            childidx |= ((xsd >= (xself+xother)/2) ⊻ (xother < xself)) << (j-1)
         end
         root = getchild(split, childidx)
     end
@@ -444,47 +419,25 @@ end
 
 Return an iterator visiting the leaf-nodes below `box` in depth-first order.
 """
-leaves(root::Box) = LeafIterator(root)
+leaves(root::Box) = Iterators.filter(box->isleaf(box) && !isfake(box), root)
 
-## LeafIterator
+"""
+    isfake(box)
 
-function Base.start(iter::LeafIterator)
-    isleaf(iter.root) && return VisitorState(iter.root, 0)
-    find_next_leaf(iter, VisitorState(iter.root, 0))
-end
-Base.done(iter::LeafIterator, state::VisitorState) = state.childindex >= maxchildren(iter.root)
-
-function Base.next(iter::LeafIterator, state::VisitorState)
-    @assert(isleaf(state.box))
-    return (state.box, find_next_leaf(iter, state))
-end
-function find_next_leaf(iter::LeafIterator, state::VisitorState)
-    _, state = next(iter.root, state)
-    while !isleaf(state.box) && state.childindex < maxchildren(iter.root)
-        _, state = next(iter.root, state)
+True if `box` has been displaced from its parent along a fictive dimension.
+"""
+function isfake(box::Box)
+    n = ndims(box)
+    p = box.parent
+    isleaf(p) && return false
+    split = p.split
+    tf = false
+    cidx = box.childindex
+    for d in split.dims
+        tf |= ((cidx & 0x01) == 0x01) & (d > n)
+        cidx = cidx >> 0x01
     end
-    return state
-end
-
-## NonleafIterator
-
-# depth-first pre-order
-function Base.start(iter::NonleafIterator)
-    return VisitorState(iter.root, isleaf(iter.root) ? maxchildren(iter.root) : 0)
-end
-
-Base.done(iter::NonleafIterator, state::VisitorState) = state.childindex >= maxchildren(iter.root)
-
-function Base.next(iter::NonleafIterator, state::VisitorState)
-    @assert(!isleaf(state.box))
-    return (state.box, find_next_nonleaf(iter, state))
-end
-function find_next_nonleaf(iter::NonleafIterator, state::VisitorState)
-    _, state = next(iter.root, state)
-    while isleaf(state.box) && state.childindex < maxchildren(iter.root)
-        _, state = next(iter.root, state)
-    end
-    return state
+    return tf
 end
 
 
@@ -543,7 +496,7 @@ function _next(splits, state)
     if childindex >= maxchildren(box)  # go up
         return item, ClimbingState(box, state.visited)
     end
-    iter = NonleafIterator(getchild(box.split, childindex))
+    iter = Iterators.filter(isnonleaf, getchild(box.split, childindex))
     return item, ClimbingState(box, true, skipchildindex, childindex, iter, start(iter))
 end
 
@@ -559,8 +512,24 @@ function Base.done(splits::SplitIterator, state::ClimbingState)
     return true
 end
 
+chain(box::Box) = ChainIterator(box)
 
-function Base.length(iter::Union{Box,CSpTreeIterator})
+Base.start(iter::ChainIterator) = (iter.base, 0)
+function Base.next(iter::ChainIterator{B}, state) where B<:Box{p} where p
+    box, count = state
+    item = box.split
+    return item, (item.others.children[end], count+p)
+end
+function Base.done(iter::ChainIterator{B}, state) where B<:Box{p} where p
+    return state[2] >= ndims(iter.base)
+end
+
+
+Base.length(iter::Union{Box,CSpTreeIterator}) = _length(iter)
+Base.length(iter::Iterators.Filter{F,I}) where {F,I<:Union{Box,CSpTreeIterator}} =
+    _length(iter)
+
+function _length(iter)
     state = start(iter)
     len = 0
     while !done(iter, state)

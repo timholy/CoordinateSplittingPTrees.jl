@@ -8,13 +8,14 @@ using Compat
 
 export Box, World
 export position, boxbounds, meta, value, addpoint!
-export getroot, getleaf, find_leaf_at, degree, isroot, isleaf
-export leaves, splits, splitprint, splitprint_colored, print_tree
+export getroot, getleaf, find_leaf_at, degree, isroot, isleaf, chaintop
+export leaves, splits, chain, splitprint, splitprint_colored, print_tree
 
 include("types.jl")
 include("tree.jl")
 include("polynomials.jl")
 include("cs2.jl")
+include("posdef.jl")
 
 """
 CoordinateSplittingPTrees implements coordinate-splitting trees of
@@ -91,7 +92,8 @@ where `y` is a vector.
 """
 function addpoint!(box::Box, x, dimlists, metagen::Function)
     # Validate dimlists
-    covered = falses(ndims(box))
+    n = ndims(box)
+    covered = falses(n)
     for dimlist in dimlists
         for d in dimlist
             covered[d] && error("dimension $d was duplicated")
@@ -120,7 +122,14 @@ function addpoint!(box::Box, x, dimlists, metagen::Function)
             push!(metas, metagen(y))
             y[dl] = y0
         end
-        box = Box(box, dimlist, (d->x[d]).(dimlist), (metas...,))[end]
+        others = Box(box, dimlist, (d->x[d]).(dimlist), (metas...,))
+        # Ensure the returned box (and entire chain) is not displaced
+        # along fictive dimensions
+        cindex = 0x00
+        for d in dimlist
+            cindex = (cindex << 0x01) | (d <= n)
+        end
+        box = others[cindex]
         y[dimlistv] = x[dimlistv]
     end
     return box
@@ -140,6 +149,113 @@ function addpoint!(root, x, metagen::Function)
     leaf = find_leaf_at(root, x)
     dimlists = choose_dimensions(leaf)
     addpoint!(root, x, dimlists, metagen)
+end
+
+"""
+    addpoint_distinct!(box::Box, x, metagen::Function)
+
+Create new evaluation points by splitting existing boxes. `x` is the
+desired evaluation point; however, for any `x[i]` that are identical
+to the existing target `leaf = find_leaf_at(root, x)`, a new value is
+chosen using `partition_interval`.
+
+See [`addpoint!`](@ref) for additional information.
+"""
+function addpoint_distinct!(root, x, metagen::Function)
+    xcopy = copy(x)
+    leaf = find_leaf_at(root, x)
+    xleaf = position(leaf)
+    for i = 1:ndims(root)
+        if x[i] == xleaf[i]
+            xcopy[i] = partition_interval(x[i], leaf, i)
+        end
+    end
+    addpoint!(root, xcopy, metagen)
+end
+
+"""
+    y = partition_interval(x::Real, box, splitdim)
+
+Along dimension `splitdim`, split the largest interval between the
+evaluation point `x` and the edges, so that the gap between points and
+edges is cut to one-third of the original (thus making all "new"
+intervals equal in size):
+
+```
+old: |                 x  |
+new: |     y     |     x  |
+```
+
+When the largest interval is infinite, there are two cases:
+
+- if both edges are infinitely far away, an arbitrary point is
+  generated (or select a distinct value of `world.position[splitdim]`,
+  if it was initialized with a 2-tuple)
+- if only one interval has infinite extent, the gap between the points
+  and the new dividing edge doubles that of the interval on the
+  opposite side:
+
+```
+old: |     x
+new: |     x          |          y
+```
+"""
+function partition_interval(x::Real, box::Box, splitdim)
+    bb = boxbounds(box, splitdim)
+    if isfinite(bb[1]) && isfinite(bb[2])
+        if bb[2] - x > x - bb[1]
+            return (2*bb[2] + x)/3
+        else
+            return (x + 2*bb[1])/3
+        end
+    elseif isfinite(bb[2])
+        return x - 4*(bb[2]-x)
+    elseif isfinite(bb[1])
+        return x + 4*(x-bb[1])
+    end
+    w = box.world
+    return world_newposition(x, w.position[splitdim], w.lower[splitdim], w.upper[splitdim])
+end
+
+function nanzero!(A::AbstractArray)
+    z = zero(eltype(A))
+    for I in eachindex(A)
+        if isnan(A[I])
+            A[I] = z
+        end
+    end
+    return A
+end
+
+nanzero!(A::SymmetricArray) = nanzero!(A.data)
+
+function nanzero!(A::SparseMatrixCSC)
+    nanzero!(A.nzvals)
+    return A
+end
+
+function nanzero!(A::SymTridiagonal)
+    nanzero!(A.ev)
+    nanzero!(A.dv)
+    return A
+end
+
+function randleaf(root)
+    L = maxchildren(root)
+    box = root
+    while !isleaf(box)
+        split = box.split
+        children = (split.self, split.others.children...)
+        box = children[rand(1:L)]
+    end
+    return box
+end
+
+function init_plotting()
+    push!(LOAD_PATH, @__DIR__)
+    @eval Main using CSpPlots
+    pop!(LOAD_PATH)
+    nothing
 end
 
 end # module

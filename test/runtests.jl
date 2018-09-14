@@ -2,13 +2,55 @@ using CoordinateSplittingPTrees
 using Base.Test
 include("functions.jl")
 
+struct DummyMeta
+    val::Float64
+end
+
+@testset "World" begin
+    world = @inferred(World([0], [1], [0], 10))
+    @test eltype(world.lower) == Float64
+    world = @inferred(World([0.0], [1], [0], 10))
+    @test eltype(world.lower) == Float64
+    world = @inferred(World(zeros(5), ones(5), rand(5), 10))
+    @test eltype(world.lower) == Float64
+    @test_throws ArgumentError World(zeros(2), ones(2), [7.0,0.5], 0)
+    world = @inferred(World(zeros(2), [Inf,1], [7.0,0.5], 0))
+    @test CoordinateSplittingPTrees.baseposition(world) == [7.0, 0.5]
+    world = @inferred(World([1,2], 0))
+    @test world.lower == [-Inf,-Inf]
+    @test world.upper == [Inf,Inf]
+    @test CoordinateSplittingPTrees.baseposition(world) == [1.0,2.0]
+    world = @inferred(World([1,2], x->3.0))
+    @test world.meta == 3.0
+
+    # Behavior reserved for use by QuadSplit (2-tuple splits)
+    world = @inferred(World(zeros(3), fill(3, 3), fill((1,2), 3), DummyMeta(0)))
+    @test eltype(world.lower) == Float64
+    @test CoordinateSplittingPTrees.baseposition(world) == ones(3)
+    world = World(zeros(3), fill(3, 3), fill((2,1), 3), DummyMeta(0))
+    @test CoordinateSplittingPTrees.baseposition(world) == fill(2, 3)
+    @test_throws ArgumentError World(zeros(3), fill(3, 3), fill((1,1), 3), DummyMeta(0))
+    world = World(zeros(3), fill(3, 3), fill((2,1), 3), DummyMeta(0))
+    @test CoordinateSplittingPTrees.baseposition(world) == fill(2, 3)
+    world = World(fill((2,1), 3), DummyMeta(0))
+    @test world.lower == [-Inf,-Inf,-Inf]
+    @test world.upper == [Inf,Inf,Inf]
+    @test CoordinateSplittingPTrees.baseposition(world) == fill(2, 3)
+
+    world = World(fill(-Inf, 3), fill(Inf, 3), fill((1,2.5), 3), 0)
+    root = Box{2}(world)
+    @test position(root) == ones(3)
+    box = CoordinateSplittingPTrees.addpoint_distinct!(root, [5,1.0,3], x->0)
+    @test position(box) == [5,2.5,3]
+end
+
 @testset "Geometry and iteration, CS1" begin
     # For comparing boxbounds
     myapproxeq(t1::Tuple{Real,Real}, t2::Tuple{Real,Real}) = t1[1] ≈ t2[1] && t1[2] ≈ t2[2]
     myapproxeq(v1::Vector, v2::Vector) = all(myapproxeq.(v1, v2))
 
     # 1-d
-    world = World([0], [1], [(0,1)], 10)
+    world = World([0], [1], [0], 10)
     @test eltype(world.lower) == Float64
     root = @inferred(Box{1}(world))
     @test_throws ErrorException Box(root, 1, -0.5, 20)  # out-of-bounds
@@ -22,7 +64,6 @@ include("functions.jl")
     @test @inferred(boxbounds(box)) == [(0.5,1)]
     @test @inferred(boxbounds(box, 1)) == (0.5,1)
     @test_throws BoundsError boxbounds(box, 2)
-    @test CoordinateSplittingPTrees.boxscale(box) == [1]
     @test CoordinateSplittingPTrees.epswidth(boxbounds(box, 1)) == eps()
     @test CoordinateSplittingPTrees.epswidth(boxbounds(getleaf(root), 1)) == eps(0.5)
     # evaluation point is at the boundary of parents
@@ -48,14 +89,19 @@ include("functions.jl")
     @test length(root) == 5
     @test length(leaves(root)) == 3
 
-    world = World([0], [Inf], [(0,1)], 10) # with infinite size
+    world = World([0], [Inf], [0], 10) # with infinite size
     root = Box{1}(world)
     box = Box(root, 1, 1, 20)[1]
     @test boxbounds(box) == [(0.5,Inf)]
     @test boxbounds(box, 1) == (0.5,Inf)
-    @test CoordinateSplittingPTrees.boxscale(box) == [1]
     @test CoordinateSplittingPTrees.epswidth(boxbounds(box, 1)) == eps(0.5)
     @test CoordinateSplittingPTrees.epswidth(boxbounds(getleaf(root), 1)) == eps(0.5)
+
+    world = World([0], [1], [1], 10)
+    root = Box{1}(world)
+    box1 = Box(root, 1, 0, 20)[1]
+    leaf = find_leaf_at(root, 0.5)
+    @test leaf == getleaf(root)
 
     geom = Dict()
     root = generate_randboxes(Box{1}, 1, 10, (args...)->record_geometry!(geom, args...))
@@ -66,7 +112,7 @@ include("functions.jl")
     end
 
     # 2-d
-    world = World([0,-Inf], [Inf,Inf], [(1,2), (1,2)], nothing)
+    world = World([0,-Inf], [Inf,Inf], [1,1], nothing)
     root = @inferred(Box{1}(world))
     box1 = @inferred(Box(root, 1, 2, nothing))[1]
     box2 = Box(getleaf(root), 2, 2, nothing)[1]
@@ -161,8 +207,39 @@ end
     myapproxeq(t1::Tuple{Real,Real}, t2::Tuple{Real,Real}) = t1[1] ≈ t2[1] && t1[2] ≈ t2[2]
     myapproxeq(v1::Vector, v2::Vector) = all(myapproxeq.(v1, v2))
 
+    # 1-d
+    world = World([-Inf], [Inf], [1], 0)
+    root = Box{2}(world)
+    addpoint!(root, [1.2], x->0)
+    # test for displacement along fictive dimension
+    chldrn = collect(AbstractTrees.children(root))
+    @test !CoordinateSplittingPTrees.isfake(chldrn[1])
+    @test !CoordinateSplittingPTrees.isfake(chldrn[2])
+    @test  CoordinateSplittingPTrees.isfake(chldrn[3])
+    @test  CoordinateSplittingPTrees.isfake(chldrn[4])
+    @test length(leaves(root)) == 2
+    box1 = addpoint!(root, [0.75], x->0)
+    @test length(leaves(root)) == 3
+    box2 = addpoint!(root, [0.5], x->0)
+    @test length(leaves(root)) == 4
+    @test boxbounds(box2, 1) == (-Inf, 5/8)
+    @test boxbounds(box1, 1) == (-Inf, 7/8)
+    @test boxbounds(getleaf(box1), 1) == (5/8, 7/8)
+
+
+    world = World([0], [1], [0], 10)
+    root = Box{1}(world)
+    box1 = Box(root, 1, 1, 20)[1]
+    leaf = find_leaf_at(root, 0.5)
+    @test leaf == box1
+    world = World([0], [1], [1], 10)
+    root = Box{1}(world)
+    box1 = Box(root, 1, 0, 20)[1]
+    leaf = find_leaf_at(root, 0.5)
+    @test leaf == getleaf(root)
+
     # 2-d
-    world = World([0,-Inf], [Inf,Inf], [(1,2), (1,2)], nothing)
+    world = World([0,-Inf], [Inf,Inf], [1,1], nothing)
     root = @inferred(Box{2}(world))
     boxes1 = @inferred(Box(root, (1,2), (2,2), (nothing, nothing, nothing)))
 
@@ -189,8 +266,21 @@ end
     @test boxbounds(b, 2) == (-Inf,1.5)
     @test boxbounds(b) == [(1.5,Inf), (-Inf,1.5)]
 
+    # 3-d (fake dimensions and iteration)
+    world = World(fill(-Inf,3), fill(Inf,3), fill(0,3), 1)
+    root = Box{2}(world)
+    @test length(root) == 1
+    @test length(leaves(root)) == 1
+    boxes1 = Box(root, (1,2), (1,1), (2, 3, 4)) # split along dims 1 & 2
+    @test length(root) == 5
+    @test length(leaves(root)) == 4
+    boxes2 = Box(boxes1[end], (3,4), (1,1), (5, 6, 7)) # split along dims 1 & 2
+    @test length(leaves(root)) == 5
+    v = [value(leaf) for leaf in leaves(root)]
+    @test v == [1:5;]
+
     # 4-d
-    world = World([0,-Inf,-5,-Inf], [Inf,Inf,50,20], fill((1,2), 4), 1)
+    world = World([0,-Inf,-5,-Inf], [Inf,Inf,50,20], fill(1, 4), 1)
     root = Box{2}(world)
     @test length(root) == 1
     @test length(leaves(root)) == 1
@@ -351,15 +441,15 @@ end
 
     # Odd dimensionality for CSp with p even (fictive dimensions)
     n = 3
-    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    world = World(fill(-Inf, n), fill(Inf, n), fill(0, n), rand())
     root = Box{2}(world)
     x = ones(n)
     box = addpoint!(root, x, [(1,2), (3,)], f)
+    @test position(box) == x
     x = [0.6, 2, 2]
     box = addpoint!(root, x, [(2,3), (1,)], f)
     @test position(box) == [0.6,2,2]
     @test boxbounds(box) == [(0.5, 0.8), (1.5,Inf), (1.5,Inf)]
-    @test CoordinateSplittingPTrees.boxscale(box) == [0.4,1,1]
 
     s = [split.dims for split in splits(box)]
     @test s == [(1,4), (2,3), (3,4), (1,2)]
@@ -377,9 +467,10 @@ end
     @test s == [(1,2), (3,4), (2,3), (1,4)]
 
     n = 6
-    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    world = World(fill(-Inf, n), fill(Inf, n), fill(0, n), rand())
     root = Box{2}(world)
-    x = ones(n); addpoint!(root, x, [(1,2), (3,4), (5,6)], f)
+    x = ones(n); box = addpoint!(root, x, [(1,2), (3,4), (5,6)], f)
+    position(box) == x
     x = [0.8; 0.8; 0.8; 0.2; 0.2; 0.2]; addpoint!(root, x, [(1,3), (2,5), (4,6)], f)
     x = fill(0.2, n); addpoint!(root, x, [(1,5), (3,6), (2,4)], f)
     box = find_leaf_at(root, [0.2,0,0.2,0,0.2,0])
@@ -401,7 +492,7 @@ end
     @test s == [(1,2), (1,5), (3,6), (2,4), (3,4), (1,3), (2,5), (4,6), (5,6)]
 
     n = 8
-    world = World(fill(-Inf, n), fill(Inf, n), fill((0,1), n), rand())
+    world = World(fill(-Inf, n), fill(Inf, n), fill(0, n), rand())
     for i = 1:20
         root = Box{2}(world)
         x = randn(n); addpoint!(root, x, [(1,2), (3,4), (5,6), (7,8)], f)
@@ -439,8 +530,7 @@ end
                            (4, ([(1,2), (3,4)], [(3,1), (2,4)])),
                            (4, ([(1,2), (3,4)], [(1,2), (3,4)])))
         x0 = randn(n)
-        s0 = [(x,x+1) for x in x0]
-        world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+        world = World(fill(-Inf, n), fill(Inf, n), x0, f(x0))
         root = box = Box{2}(world)
         chaintops = typeof(root)[]
         repeats = dimlistss[2] == dimlistss[1]
@@ -462,9 +552,21 @@ end
         end
         i = length(chaintops)
         while !isroot(box)
-            top, success = CoordinateSplittingPTrees.chaintop(box)
+            top, success = chaintop(box)
             @test success
             @test top == chaintops[i]
+            ntests = 0
+            for (j, split) in enumerate(chain(top))
+                @test j < 3
+                if j == 1
+                    @test split == top.split
+                    ntests += 1
+                elseif j == 2
+                    @test split == top.split.others.children[end].split
+                    ntests += 1
+                end
+            end
+            @test ntests == 2
             for child in box.parent.split.others.children
                 top, success = CoordinateSplittingPTrees.chaintop(child)
                 @test success
@@ -494,8 +596,7 @@ end
     for p in (1, 2, 3)
         for n in (6, 7)
             x0 = zeros(n)
-            s0 = [(x,x+1) for x in x0]
-            world = World(fill(-Inf, n), fill(Inf, n), s0, 0.0)
+            world = World(fill(-Inf, n), fill(Inf, n), x0, 0.0)
             sz = ntuple(d->n, p)
             B = CoordinateSplittingPTrees.SymmetricArray(randn(sz))
             f(x) = bprod(x, B)
@@ -534,12 +635,62 @@ end
     end
 end
 
+hesscount = 0
+
+@testset "Sparse Hessians" begin
+    function fsparse(x)
+        dx = diff(x)       # only (i,i+1) Q terms are nonzero
+        return sum(abs2, dx)/2
+    end
+    x0 = [0.1,0.2,0.3,0.4]
+    world = World(x0, fsparse)
+    root = Box{2}(world)
+    box = addpoint!(root, 2*x0, [(1,3), (2,4)], fsparse) # neither split has nonzero in Hessian
+    box = addpoint!(root, 3*x0, [(2,3), (1,4)], fsparse)
+    box = addpoint!(root, 4*x0, [(1,4), (2,3)], fsparse)
+    box = addpoint!(root, 5*x0, [(1,2), (3,4)], fsparse)
+    callback = (box,val)->(global hesscount; hesscount+=1)
+    Q = zeros(4, 4)
+    @test_throws MethodError CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)  # type must enforce symmetry
+    Q = CoordinateSplittingPTrees.SymmetricArray(Q)
+    CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
+    for i = 1:3
+        @test Q[i,i+1] ≈ -1
+        @test Q[i+1,i] ≈ -1
+        @test isnan(Q[i,i])
+    end
+    @test abs((Q[1,3])) < 1e-8
+    @test abs((Q[2,4])) < 1e-8
+    @test abs((Q[1,4])) < 1e-8
+    @test hesscount == 24
+    Q = SymTridiagonal(zeros(4), zeros(3))
+    hesscount = 0
+    CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
+    for i = 1:3
+        @test Q[i,i+1] ≈ -1
+        @test Q[i+1,i] ≈ -1
+        @test isnan(Q[i,i])
+    end
+    @test hesscount == 12
+    Q = sparse([1,1,2,2,3,3,4,1], [1,2,2,3,3,4,4,4], zeros(8))
+    @test_throws MethodError CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
+    Q = CoordinateSplittingPTrees.SymmetricArray(Q)
+    @test CoordinateSplittingPTrees.nnz_offdiag_sym(Q) == 4
+    hesscount = 0
+    CoordinateSplittingPTrees.coefficients_p!(Q, box, callback)
+    for i = 1:3
+        @test Q[i,i+1] ≈ -1
+        @test Q[i+1,i] ≈ -1
+        @test isnan(Q[i,i])
+    end
+    @test hesscount == 16
+end
+
 @testset "Choosing split dimensions" begin
     f(x) = rand()
     n = 2
     x0 = randn(n)
-    s0 = [(x,x+1) for x in x0]
-    world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+    world = World(fill(-Inf, n), fill(Inf, n), x0, f(x0))
     root = Box{2}(world)
     pairs = CoordinateSplittingPTrees.choose_dimensions(root)
     @test pairs == [(1,2)]
@@ -549,8 +700,7 @@ end
 
     n = 3
     x0 = randn(n)
-    s0 = [(x,x+1) for x in x0]
-    world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+    world = World(fill(-Inf, n), fill(Inf, n), x0, f(x0))
     pairseq = []
     root = Box{2}(world)
     pairs = CoordinateSplittingPTrees.choose_dimensions(root)
@@ -621,8 +771,8 @@ end
             end
             for k = 1:n
                 (k == d1 || k == d2) && continue
-                @test Qcoef_lineq(d1, k, Δx1, x[k], prec[d1,k], b[k], y[k]) == 0
-                @test Qcoef_lineq(d2, k, Δx2, x[k], prec[d2,k], b[k], y[k]) == 0
+                @test Qcoef_lineq(d1, k, Δx1, x[k], b[k], y[k], prec[d1,k]) == 0
+                @test Qcoef_lineq(d2, k, Δx2, x[k], b[k], y[k], prec[d2,k]) == 0
             end
             x[d1] = y[d1]
             if i < n
@@ -630,30 +780,30 @@ end
             end
             for k = 1:n
                 (k == d1 || k == d2) && continue
-                @test Qcoef_value(k, d1, x, prec, b, y) == 0
-                @test Qcoef_value(d1, k, x, prec, b, y) == 0
-                @test Qcoef_value(k, d2, x, prec, b, y) == 0
-                @test Qcoef_value(d2, k, x, prec, b, y) == 0
-                @test abs((x[d1] - b[d1]) * (x[k] - chi(k, d1, prec, b, y))/2 +
-                          (x[k] - b[k]) * (x[d1] - chi(d1, k, prec, b, y))/2) < 1e-12
-                @test abs((x[d2] - b[d2]) * (x[k] - chi(k, d2, prec, b, y))/2 +
-                          (x[k] - b[k]) * (x[d2] - chi(d2, k, prec, b, y))/2) < 1e-12
+                @test Qcoef_value(k, d1, x, b, y, prec) == 0
+                @test Qcoef_value(d1, k, x, b, y, prec) == 0
+                @test Qcoef_value(k, d2, x, b, y, prec) == 0
+                @test Qcoef_value(d2, k, x, b, y, prec) == 0
+                @test abs((x[d1] - b[d1]) * (x[k] - chi(k, d1, b, y, prec))/2 +
+                          (x[k] - b[k]) * (x[d1] - chi(d1, k, b, y, prec))/2) < 1e-12
+                @test abs((x[d2] - b[d2]) * (x[k] - chi(k, d2, b, y, prec))/2 +
+                          (x[k] - b[k]) * (x[d2] - chi(d2, k, b, y, prec))/2) < 1e-12
             end
-            @test Qcoef_value(d1, d1, x, prec, b, y) == 0
-            @test Qcoef_value(d2, d2, x, prec, b, y) == 0
-            @test abs((x[d1] - b[d1]) * (x[d1] - chi(d1, d1, prec, b, y))/2 +
-                      (x[d1] - b[d1]) * (x[d1] - chi(d1, d1, prec, b, y))/2) < 1e-12
-            @test abs((x[d2] - b[d2]) * (x[d2] - chi(d2, d2, prec, b, y))/2 +
-                      (x[d2] - b[d2]) * (x[d2] - chi(d2, d2, prec, b, y))/2) < 1e-12
-            @test Qcoef_value(d1, d2, x, prec, b, y) ≈ (
-                (x[d1] - b[d1]) * (x[d2] - chi(d2, d1, prec, b, y))/4 +
-                (x[d2] - b[d2]) * (x[d1] - chi(d1, d2, prec, b, y))/4)
+            @test Qcoef_value(d1, d1, x, b, y, prec) == 0
+            @test Qcoef_value(d2, d2, x, b, y, prec) == 0
+            @test abs((x[d1] - b[d1]) * (x[d1] - chi(d1, d1, b, y, prec))/2 +
+                      (x[d1] - b[d1]) * (x[d1] - chi(d1, d1, b, y, prec))/2) < 1e-12
+            @test abs((x[d2] - b[d2]) * (x[d2] - chi(d2, d2, b, y, prec))/2 +
+                      (x[d2] - b[d2]) * (x[d2] - chi(d2, d2, b, y, prec))/2) < 1e-12
+            @test Qcoef_value(d1, d2, x, b, y, prec) ≈ (
+                (x[d1] - b[d1]) * (x[d2] - chi(d2, d1, b, y, prec))/4 +
+                (x[d2] - b[d2]) * (x[d1] - chi(d1, d2, b, y, prec))/4)
         end
         x = randn(n)
         for j = 1:n, i = 1:n
-            @test Qcoef_value(i, j, x, prec, b, y) ≈ (
-                (x[i] - b[i]) * (x[j] - chi(j, i, prec, b, y))/4 +
-                (x[j] - b[j]) * (x[i] - chi(i, j, prec, b, y))/4)
+            @test Qcoef_value(i, j, x, b, y, prec) ≈ (
+                (x[i] - b[i]) * (x[j] - chi(j, i, b, y, prec))/4 +
+                (x[j] - b[j]) * (x[i] - chi(i, j, b, y, prec))/4)
         end
     end
 end
@@ -663,8 +813,7 @@ end
         B = CoordinateSplittingPTrees.SymmetricArray(randn(n, n))
         f(x) = (x'*B*x)/2
         x0 = randn(n)
-        s0 = [(x,x+1) for x in x0]
-        world = World(fill(-Inf, n), fill(Inf, n), s0, f(x0))
+        world = World(fill(-Inf, n), fill(Inf, n), x0, f(x0))
         for iter = 1:10  # ensure a variety of splitting patterns
             root = box = Box{2}(world)
             while true
@@ -677,8 +826,8 @@ end
             c, g, Q, b, y, prec, firstmatch = CoordinateSplittingPTrees.fit_quadratic_native(box)
             for leaf in leaves(root)
                 x = position(leaf)
-                @test modelvalue(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-8
-                @test modelvalue_chi(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-8
+                @test modelvalue(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-7
+                @test modelvalue_chi(c, g, Q, b, y, prec, x) ≈ f(x) rtol=1e-7
             end
             c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic(box)
             @test Q ≈ B
@@ -686,15 +835,73 @@ end
             x = position(box)
             @test c + g'*(x - b) + (x-b)'*Q*(x-b)/2 ≈ f(x) rtol=1e-8
             @test abs(c - g'*b + (b'*Q*b)/2) < 1e-8
+            # gdiag approach (which can yield different answers for non-quadratic functions,
+            # but should be identical for quadratic)
+            Q = CoordinateSplittingPTrees.coefficients_p(box)
+            c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic_gdiag!(Q, box)
+            @test Q ≈ B
+            @test g ≈ Q*b
         end
     end
+end
+
+@testset "Gauss elim" begin
+    ige = CoordinateSplittingPTrees.IGE{Float64}(3)
+    insert!(ige, [0,1,0], 1)
+    insert!(ige, [1,0,0], 2)
+    insert!(ige, [0,0,1], 3)
+    x = CoordinateSplittingPTrees.solve(ige)
+    @test x ≈ [2,1,3]
+    empty!(ige)
+    U, _ = qr(randn(3,3))  # random unitary matrix
+    A = U*Diagonal(linspace(1,3,3))*U'  # random posdef with eigvals 1,2,3
+    rhs = randn(3)
+    xtrue = A\rhs
+    for i = 1:3
+        insert!(ige, A[i,:], rhs[i])
+        if i < 3
+            @test !done(ige)
+            @test_throws LinAlg.LAPACKException CoordinateSplittingPTrees.solve(ige)
+        end
+    end
+    @test done(ige)
+    x = CoordinateSplittingPTrees.solve(ige)
+    @test x ≈ xtrue
+    insert!(ige, A[3,:], 0)
+    x = CoordinateSplittingPTrees.solve(ige)
+    @test x ≈ xtrue
+    A = U*Diagonal([1.0,1.0,1e-12])*U'  # random posdef one small eigval
+    empty!(ige)
+    for i = 1:3
+        insert!(ige, A[i,:], rhs[i])
+    end
+    x = CoordinateSplittingPTrees.solve(ige)
+    @test x ≈ A \ rhs rtol=1e-4
+end
+
+@testset "posdef" begin
+    Q = Float64[4 1; 1 4]
+    Qp = CoordinateSplittingPTrees.possemidef(Q)
+    @test Qp == Q
+    Q = Float64[1 4; 4 1]
+    Qp = CoordinateSplittingPTrees.possemidef(Q)
+    @test Qp == [4 4; 4 4]
+    Q = Float64[4.5 3; 3 0.5]
+    Qp = CoordinateSplittingPTrees.possemidef(Q)
+    @test Qp == [9 3; 3 1]
+    # This case is deliberately weaker in what it tests, since the
+    # desired behavior for 0 diagonal entries is less clear.
+    Q = Float64[0 2; 2 1]
+    Qp = CoordinateSplittingPTrees.possemidef(Q)
+    @test all(isfinite, Qp) && Qp[1,2] == Q[1,2]
+    cholfact(Qp) # test only that it's positive-definite
 end
 
 @testset "Display" begin
     io = IOBuffer()
     io2 = IOBuffer()
     # CS1, 1-d
-    world = World([0], [1], [(0,1)], 10)
+    world = World([0], [1], [0], 10)
     root = Box{1}(world)
     box = Box(root, 1, 1, 20)[1]
     box1 = Box(box, 1, 0.5, 30)[1]
@@ -718,7 +925,7 @@ end
 """
 
     # CS1, 2-d
-    world = World([0,-Inf], [Inf,Inf], [(1,2), (1,2)], 'A')
+    world = World([0,-Inf], [Inf,Inf], [1,1], 'A')
     root = Box{1}(world)
     box1 = Box(root, 1, 2, 'B')[1]
     box2 = Box(getleaf(root), 2, 2, 'C')[1]
@@ -732,7 +939,7 @@ end
 """
 
     # CS2, 3-d
-    world = World(fill(-Inf,3), fill(Inf,3), fill((1,2), 3), 100)
+    world = World(fill(-Inf,3), fill(Inf,3), fill(1, 3), 100)
     root = Box{2}(world)
     boxes1 = Box(root, (1,2), (10,20), (200,300,400))
     boxes2 = Box(boxes1[2], (3,1), (-10,3.5), (500,600,700))
