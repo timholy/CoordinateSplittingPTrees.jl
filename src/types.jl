@@ -339,14 +339,18 @@ end
 
 AbstractTrees.children(box::Box) = ChildrenIterator(box)
 
-Base.start(iter::ChildrenIterator) = 0
-Base.done(iter::ChildrenIterator, s::Int) = isleaf(iter.box) | (s == maxchildren(iter.box))
-function Base.next(iter::ChildrenIterator, s::Int)
+function Base.iterate(iter::ChildrenIterator)
+    (isleaf(iter.box) | maxchildren(iter.box) == 0) && return nothing
     split = iter.box.split
-    item = s == 0 ? split.self : split.others.children[s]
-    return (item, s+=1)
+    return split.self, 1
+end
+function Base.iterate(iter::ChildrenIterator, s::Int)
+    (isleaf(iter.box) | maxchildren(iter.box) == s) && return nothing
+    split = iter.box.split
+    return split.others.children[s], s+1
 end
 Base.length(iter::ChildrenIterator) = maxchildren(iter.box)
+Base.keys(iter::ChildrenIterator) = isleaf(iter.box) ? (1:0) : (0:maxchildren(iter.box)-1)
 
 AbstractTrees.printnode(io::IO, box::Box) = isleaf(box) ? print(io, box) : print(io, box.split.dims)
 
@@ -374,6 +378,7 @@ Base.IteratorSize(::Type{<:CSpTreeIterator}) = Base.SizeUnknown()
 struct SplitIterator{B<:Box} <: CSpTreeIterator
     base::B
 end
+
 Base.eltype(::Type{SplitIterator{B}}) where B<:Box{p,T,M,L} where {p,T,M,L} =
     Split{p,T,M,B,L}
 
@@ -384,25 +389,10 @@ maxchildren(splits::SplitIterator) = maxchildren(splits.base)
 struct ClimbingState{B<:Box,BI,BS}
     box::B                  # current top-level node
     visited::Bool           # true if box.split has already been returned
-    skipchildindex::UInt8   # index of branch from which we climbed
-    childindex::Int         # index of branch we're currently exploring
+    skipchildindex::UInt8   # index of box's branch from which we climbed
+    childindex::Int         # index of box's branch we're currently exploring
     branchiter::BI          # iterator for the current branch
     branchstate::BS         # state for the current branch
-end
-
-# Create a state that marks `box`'s branch as having been visited
-ClimbingState(box::Box, visited::Bool) = ClimbingState(box, visited, box.childindex)
-
-function ClimbingState(box::B, visited::Bool, skipchildindex::Integer) where B<:Box
-    iter = Iterators.filter(isnonleaf, box)
-    # Initialize branchstate to be at the end of iter.
-    # Here we have to know the representation of the Iterators.Filter state object (ugh).
-    branchstate = (true, box, VisitorState(box, maxchildren(box)))
-    if isroot(box)
-        @assert(!visited)
-        return ClimbingState(box, true, skipchildindex, maxchildren(box), iter, branchstate)
-    end
-    return ClimbingState(box.parent, false, skipchildindex, -1, iter, branchstate)
 end
 
 # Replace the branch state

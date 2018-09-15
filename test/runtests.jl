@@ -70,6 +70,12 @@ end
     # evaluation point is at the boundary of parents
     @test_throws AssertionError Box(root, 1, 0.5, 30)  # can only split leaves
     @test_throws ErrorException Box(getleaf(root), 1, 0.5, 30)  # can't eval at upper edge
+    boxes = collect(root)
+    @test boxes == [root, root.split.self, box]
+    boxes = collect(box)
+    @test boxes == [box]
+    boxes = collect(leaves(root))
+    @test boxes == [root.split.self, box]
     box1 = Box(box, 1, 0.5, 30)[1]
     @test boxbounds(box1, 1) == (0.5, 0.75)
     @test boxbounds(getleaf(box), 1) == (0.75, 1.0)
@@ -476,19 +482,19 @@ end
     x = fill(0.2, n); addpoint!(root, x, [(1,5), (3,6), (2,4)], f)
     box = find_leaf_at(root, [0.2,0,0.2,0,0.2,0])
     s = [split.dims for split in splits(box)]
-    @test s == [(3,6), (2,4), (1,5), (1,2), (3,4), (1,3), (2,5), (4,6), (5,6)]
+    @test s == [(2,4), (3,6), (1,5), (3,4), (1,3), (2,5), (4,6), (5,6), (1,2)]
     box = box.parent
     s = [split.dims for split in splits(box)]
-    @test s == [(3,6), (2,4), (1,5), (1,2), (3,4), (1,3), (2,5), (4,6), (5,6)]
+    @test s == [(3,6), (2,4), (1,5), (3,4), (1,3), (2,5), (4,6), (5,6), (1,2)]
     box = find_leaf_at(root, [0.8,0.8,0.8,0.2,0.2,0.2])
     s = [split.dims for split in splits(box)]
-    @test s == [(4,6), (2,5), (1,3), (3,4), (5,6), (1,2), (1,5), (3,6), (2,4)]
+    @test s == [(4,6), (2,5), (1,3), (5,6), (3,4), (1,5), (3,6), (2,4), (1,2)]
     box = find_leaf_at(root, ones(6))
     s = [split.dims for split in splits(box)]
-    @test s == [(5,6), (3,4), (1,3), (2,5), (4,6), (1,2), (1,5), (3,6), (2,4)]
+    @test s == [(5,6), (1,3), (2,5), (4,6), (3,4), (1,5), (3,6), (2,4), (1,2)]
     box = find_leaf_at(root, [1,1,0,0,0,0])
     s = [split.dims for split in splits(box)]
-    @test s == [(3,4), (1,3), (2,5), (4,6), (5,6), (1,2), (1,5), (3,6), (2,4)]
+    @test s == [(1,3), (2,5), (4,6), (5,6), (3,4), (1,5), (3,6), (2,4), (1,2)]
     s = [split.dims for split in splits(root)]
     @test s == [(1,2), (1,5), (3,6), (2,4), (3,4), (1,3), (2,5), (4,6), (5,6)]
 
