@@ -88,7 +88,7 @@ non-fictive dimensions.)
 `metagen(y)` must return the metadata to be associated with position `y`,
 where `y` is a vector.
 """
-function addpoint!(box::Box, x, dimlists, metagen::Function)
+function addpoint!(box::Box, x, dimlists::Union{AbstractVector,Tuple}, metagen::Function, metaboxgen::Function=x->nothing)
     # Validate dimlists
     n = ndims(box)
     covered = falses(n)
@@ -109,6 +109,7 @@ function addpoint!(box::Box, x, dimlists, metagen::Function)
     metas = Vector{typeof(meta(box))}(undef, L)
     l = falses(degree(box))
     for dimlist in dimlists
+        box0 = box
         dimlistv = [dimlist...]
         empty!(metas)
         length(dimlist) < degree(box) && resize!(l, length(dimlist))
@@ -121,6 +122,10 @@ function addpoint!(box::Box, x, dimlists, metagen::Function)
             y[dl] = y0
         end
         others = Box(box, dimlist, (d->x[d]).(dimlist), (metas...,))
+        box0.split.self.metabox = metaboxgen(box0.split.self)
+        for bx in others
+            bx.metabox = metaboxgen(bx)
+        end
         # Ensure the returned box (and entire chain) is not displaced
         # along fictive dimensions
         cindex = 0x00
@@ -143,10 +148,10 @@ is the root node. Choice of splitting dimensions is automatic.
 `metagen(y)` must return the metadata to be associated with position `y`,
 where `y` is a vector.
 """
-function addpoint!(root, x, metagen::Function)
+function addpoint!(root::Box, x, metagen::Function, metaboxgen::Function=x->nothing)
     leaf = find_leaf_at(root, x)
     dimlists = choose_dimensions(leaf)
-    addpoint!(root, x, dimlists, metagen)
+    addpoint!(root, x, dimlists, metagen, metaboxgen)
 end
 
 """
@@ -159,7 +164,7 @@ chosen using `partition_interval`.
 
 See [`addpoint!`](@ref) for additional information.
 """
-function addpoint_distinct!(root, x, metagen::Function)
+function addpoint_distinct!(root, x, metagen::Function, metaboxgen::Function=x->nothing)
     xcopy = copy(x)
     leaf = find_leaf_at(root, x)
     xleaf = position(leaf)
@@ -168,7 +173,7 @@ function addpoint_distinct!(root, x, metagen::Function)
             xcopy[i] = partition_interval(x[i], leaf, i)
         end
     end
-    addpoint!(root, xcopy, metagen)
+    addpoint!(root, xcopy, metagen, metaboxgen)
 end
 
 """

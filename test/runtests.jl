@@ -964,3 +964,19 @@ end
 └─ Box400@[10.0, 20.0, 1.0]
 """
 end
+
+@testset "Box metadata" begin
+    world = World([1, 1], 10.0)
+    root = Box{2}(world, (-1, 1))
+    local incrementor
+    let counter = 1
+        incrementor(box) = (counter += 1; (-counter,counter))
+    end
+    addpoint!(root, [2.0, 1.8], x->sum(x), incrementor)
+    @test root.metabox == (-1, 1)
+    i = 1
+    for leaf in leaves(root)
+        i += 1
+        @test leaf.metabox == (-i, i)
+    end
+end
