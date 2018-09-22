@@ -1,6 +1,7 @@
 using CoordinateSplittingPTrees
 import AbstractTrees
 using Test, Random, LinearAlgebra, SparseArrays
+using GLPK
 include("functions.jl")
 
 struct DummyMeta
@@ -851,6 +852,23 @@ end
             @test g ≈ Q*b
         end
     end
+end
+
+@testset "Lowerbound models" begin
+    f(x) = sum(abs2, x)/2 + x[1]*x[2]/5
+    world = World([1.0,1.0,1.0,1.0], f)
+    root = Box{2}(world)
+    for i = 1:ndims(root)+2
+        addpoint!(root, randn(ndims(root)), f)
+    end
+    box = minimum(root)
+
+    updater, model, gp, dp, Q = CoordinateSplittingPTrees.lowerbound_model(box, GLPK.Optimizer())
+    c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic_lowerbound!(Q, updater, model, gp, dp, box)
+    Qtarget = Matrix(Diagonal(ones(ndims(root))))
+    Qtarget[1,2] = Qtarget[2,1] = 0.2
+    @test Q ≈ Qtarget rtol=0.01
+    @test g ≈ Q*b rtol=0.01
 end
 
 @testset "Gauss elim" begin

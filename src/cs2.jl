@@ -382,6 +382,94 @@ end
 
 fit_quadratic_gdiag!(Q, box::Box{2}, b=position(box); skip::Int=0) =
     fit_quadratic_gdiag!(value, Q, box, b; skip=skip)
+
+### Lower-bound model
+# Fit a model for which the observed function values are a lower bound for the model values
+
+function lowerbound_model(f::Function, box::Box, optimizer, m::Integer=3*ndims(box)+1)
+    n = ndims(box)
+    c = f(box)
+    # Keep track of the points incorporated into the fit
+    pq = PriorityQueue{typeof(box),typeof(c)}()
+    function maybe_enqueue(box, val)
+        leaf = getleaf(box)
+        if !haskey(pq, leaf)
+            enqueue!(pq, leaf, val)
+        end
+        nothing
+    end
+    # Allocate storage for the model coefficients and anything needed by `updater`
+    Q = allocate_coefficients_p(n, box)
+    g = similar(Q, n)
+    x = position(box)
+    xbx = similar(x)
+    flag = similar(x, Bool)
+    X = similar(x, m, n)
+    XQX = similar(X)
+    X2 = similar(X)
+    Δf = Vector{typeof(c)}(undef, m)
+    # Perform all box-specific setup (a box `bx` will be passed to this before solving the model)
+    # The end results are `X`, which stores displacements from the base point in its columns,
+    # and Δf, which stores the residual value that should ideally be fit by the gradient and the
+    # diagonal of the Hessian.
+    function updater(bx)
+        empty!(pq)
+        c = f(bx)
+        position!(xbx, flag, bx)
+        iter = splits(bx)
+        state = skipsplits(iter, 0)
+        coefficients_p!(f, Q, bx, iter, state, maybe_enqueue)
+        # If we didn't visit m boxes, continue traversing the tree until we get enough
+        while length(pq) < m
+            split, state = iterate(iter, state)
+            for ichild = 0:maxchildren(box)-1
+                child = getchild(split, ichild)
+                maybe_enqueue(child, f(child))
+            end
+        end
+        # Zero the diagonal of Q so that the NaNs do not poison calculation of the residual
+        for i = 1:n
+            Q[i,i] = 0
+        end
+        for j = 1:m
+            box = dequeue!(pq)
+            position!(x, flag, box)
+            X[j,:] .= x .- xbx
+            Δf[j] = value(box)
+        end
+        # From Δf subtract off everything except the gradient term and the diagonal of Q
+        mul!(XQX, X, Q)
+        XQX .*= X
+        Δf .-= c .+ vec(sum(XQX; dims=2)) ./ 2
+        X2 .= X.^2 ./ 2
+        true  # return upon success
+    end
+    # Set up the solver
+    model = Model(optimizer)
+    g = [Variable(model) for _ = 1:n]
+    d = [Variable(model) for _ = 1:n]
+    Xparam = Parameter(identity, X, model)
+    X2param = Parameter(identity, X2, model)
+    Δfp = Parameter(identity, Δf, model)
+    pred = @expression Xparam*g + X2param*d
+    @constraint(model, pred >= Δfp)
+    @objective(model, Minimize, sum(pred))
+    return updater, model, g, d, Q
+end
+lowerbound_model(box::Box, optimizer, m::Integer=3*ndims(box)+1) = lowerbound_model(value, box, optimizer, m)
+
+function fit_quadratic_lowerbound!(Q, updater, model, g, d, box::Box{2}, b=position(box))
+    updater(box)
+    solve!(model)
+    gv, dv = Parametron.value.(model, g), Parametron.value.(model, d)
+    for i in axes(Q, 1)
+        Q[i,i] = dv[i]
+    end
+    return value(box), gv, Q, b
+end
+
+### Incremental Gaussian Elimination utilities
+
 function Base.insert!(ige::IGE{T}, x::AbstractVector, newrhs; canswap::Bool=true) where T
     @inline myapprox(x, y, rtol) = (x == y) | (abs(x-y) < rtol*(abs(x) + abs(y)))
     rtol = 1000*eps(T)

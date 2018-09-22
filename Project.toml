@@ -6,7 +6,9 @@ version = "0.1.0"
 [deps]
 AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 BlossomV = "6c721016-9dae-5d90-abf6-67daaccb2332"
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Parametron = "41fac6d6-0ffa-5bcc-b863-17dd4947be41"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
@@ -15,3 +17,7 @@ julia = "0.7, 1.0"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+GLPK = "60bf3e95-4087-53dc-ae20-288a0d20c6a6"
+
+[targets]
+test = ["Test", "GLPK"]

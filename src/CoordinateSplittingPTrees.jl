@@ -3,6 +3,9 @@ module CoordinateSplittingPTrees
 using LinearAlgebra, SparseArrays
 using AbstractTrees  # for display of tree structures
 import BlossomV      # we use matching to select dimension-pairs (see cs2.jl)
+using DataStructures # for PriorityQueue
+import Parametron    # for solving the lower-bound model. `import` prevents a conflict with Parametron.value
+using Parametron: Model, Variable, Parameter, Minimize, @expression, @constraint, @objective, solve!
 
 export Box, World
 export position, boxbounds, meta, value, addpoint!
