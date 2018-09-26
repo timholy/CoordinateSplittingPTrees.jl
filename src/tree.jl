@@ -552,6 +552,8 @@ end
 Base.length(iter::Union{Box,CSpTreeIterator}) = _length(iter)
 Base.length(iter::Iterators.Filter{F,I}) where {F,I<:Union{Box,CSpTreeIterator}} =
     _length(iter)
+Base.length(iter::Iterators.Filter{F,I}) where {F,I<:Iterators.Filter{F2,I2}} where {F2,I2<:Box} =
+    _length(iter)
 
 function _length(iter)
     len = 0

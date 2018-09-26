@@ -133,6 +133,7 @@ end
 Base.ndims(world::World) = length(world.position)
 baseposition(world::World{T}) where T = baseposition(T, world.position)
 
+Base.in(position::AbstractVector, world::World) = all(t->((x, l, u) = t; l <= x <= u), zip(position, world.lower, world.upper))
 
 ## Box
 

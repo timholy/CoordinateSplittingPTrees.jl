@@ -24,7 +24,7 @@ function choose_dimensions(box::Box{2})
     # has only one unseen pairing left. Allowing only unseen pairings,
     # we then construct a maximal matching
     # (https://en.wikipedia.org/wiki/Matching_(graph_theory))
-    neven = n + (isodd(n) ? 1 : 0)
+    neven = n + isodd(n)
     agesentinel = typemax(Int)            # this value signals "never seen"
     age = fill(agesentinel, neven, neven) # recency of edge, younger is "worse"
     for i = 1:neven
