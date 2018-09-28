@@ -473,10 +473,8 @@ function lowerbound_model(f::Function, box::Box, optimizer, m::Integer=2*ndims(b
             position!(x, flag, box)
             insertrow!(X, X2, Δf, irow+=1, box)
         end
-        # Zero the diagonal of Q so that the NaNs do not poison calculation of the residual
-        for i = 1:n
-            Q[i,i] = 0
-        end
+        # Zero the NaNs so they don't poison Δf
+        nanzero!(Q)
         # From Δf subtract off everything except the gradient term and the diagonal of Q
         mul!(XQX, X, Q)
         XQX .*= X
