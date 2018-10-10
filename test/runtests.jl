@@ -96,6 +96,8 @@ end
     @test_throws ErrorException find_leaf_at(root, [1.2])
     @test length(root) == 5
     @test length(leaves(root)) == 3
+    @test position(leaf) ∈ root
+    @test position(leaf) ∈ leaf
 
     world = World([0], [Inf], [0], 10) # with infinite size
     root = Box{1}(world)
@@ -192,6 +194,8 @@ end
     @test myapproxeq(boxbounds(b1_1, 1), (2/3, 1.5))
     @test boxbounds(b1_1, 2) == (0, 1.5)
     @test myapproxeq(boxbounds(b1_1), [(2/3, 1.5), (0, 1.5)])
+
+    @test all(CoordinateSplittingPTrees.splittable, boxbounds(b1_1))
 
     geom = Dict()
     root = generate_randboxes(Box{1}, 2, 10, (args...)->record_geometry!(geom, args...))

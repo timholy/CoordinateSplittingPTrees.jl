@@ -214,6 +214,13 @@ function boxbounds!(bbs, lfilled, ufilled, box::Box)
     bbs
 end
 
+function Base.in(xs::AbstractVector, box::Box)
+    for (bb, x) in zip(boxbounds(box), xs)
+        bb[1] <= x <= bb[2] || return false
+    end
+    return true
+end
+
 """
     nc = ncollinear(box, top=getroot(box))
 
@@ -270,6 +277,9 @@ function epswidth(bb::Tuple{T,T}) where T<:AbstractFloat
     return max(w1, w2)
 end
 epswidth(bb::Tuple{Real,Real}) = epswidth(Float64.(bb))
+
+# 10*eps is pretty arbitrary, but not unreasonable
+splittable(bb::Tuple{Real,Real}) = bb[2] - bb[1] > 10*epswidth(bb)
 
 ### Traversal
 
