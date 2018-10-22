@@ -1018,4 +1018,7 @@ end
         i += 1
         @test leaf.metabox == (-i, i)
     end
+    io = IOBuffer()
+    print_metabox(io, root)
+    @test String(take!(io)) == "Box10.0@[1.0, 1.0] with metadata (-1, 1)"
 end

@@ -59,6 +59,7 @@ function get_allparents(box)
     allparents
 end
 
+print_metabox(io::IO, box::Box) = print(io, box, " with metadata ", box.metabox)
 
 ### Geometry
 

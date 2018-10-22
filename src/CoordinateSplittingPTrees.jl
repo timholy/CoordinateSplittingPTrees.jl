@@ -10,7 +10,7 @@ using Parametron: Model, Variable, Parameter, Minimize, @expression, @constraint
 export Box, World
 export position, boxbounds, meta, value, addpoint!
 export getroot, getleaf, find_leaf_at, degree, isroot, isleaf, chaintop, iscomplete
-export leaves, splits, chain, splitprint, splitprint_colored, print_tree
+export leaves, splits, chain, splitprint, splitprint_colored, print_tree, print_metabox
 
 include("types.jl")
 include("tree.jl")
