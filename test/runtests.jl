@@ -1,5 +1,6 @@
 using CoordinateSplittingPTrees
-using Base.Test
+import AbstractTrees
+using Test, Random, LinearAlgebra, SparseArrays
 include("functions.jl")
 
 struct DummyMeta
@@ -69,6 +70,12 @@ end
     # evaluation point is at the boundary of parents
     @test_throws AssertionError Box(root, 1, 0.5, 30)  # can only split leaves
     @test_throws ErrorException Box(getleaf(root), 1, 0.5, 30)  # can't eval at upper edge
+    boxes = collect(root)
+    @test boxes == [root, root.split.self, box]
+    boxes = collect(box)
+    @test boxes == [box]
+    boxes = collect(leaves(root))
+    @test boxes == [root.split.self, box]
     box1 = Box(box, 1, 0.5, 30)[1]
     @test boxbounds(box1, 1) == (0.5, 0.75)
     @test boxbounds(getleaf(box), 1) == (0.75, 1.0)
@@ -475,19 +482,19 @@ end
     x = fill(0.2, n); addpoint!(root, x, [(1,5), (3,6), (2,4)], f)
     box = find_leaf_at(root, [0.2,0,0.2,0,0.2,0])
     s = [split.dims for split in splits(box)]
-    @test s == [(3,6), (2,4), (1,5), (1,2), (3,4), (1,3), (2,5), (4,6), (5,6)]
+    @test s == [(2,4), (3,6), (1,5), (3,4), (1,3), (2,5), (4,6), (5,6), (1,2)]
     box = box.parent
     s = [split.dims for split in splits(box)]
-    @test s == [(3,6), (2,4), (1,5), (1,2), (3,4), (1,3), (2,5), (4,6), (5,6)]
+    @test s == [(3,6), (2,4), (1,5), (3,4), (1,3), (2,5), (4,6), (5,6), (1,2)]
     box = find_leaf_at(root, [0.8,0.8,0.8,0.2,0.2,0.2])
     s = [split.dims for split in splits(box)]
-    @test s == [(4,6), (2,5), (1,3), (3,4), (5,6), (1,2), (1,5), (3,6), (2,4)]
+    @test s == [(4,6), (2,5), (1,3), (5,6), (3,4), (1,5), (3,6), (2,4), (1,2)]
     box = find_leaf_at(root, ones(6))
     s = [split.dims for split in splits(box)]
-    @test s == [(5,6), (3,4), (1,3), (2,5), (4,6), (1,2), (1,5), (3,6), (2,4)]
+    @test s == [(5,6), (1,3), (2,5), (4,6), (3,4), (1,5), (3,6), (2,4), (1,2)]
     box = find_leaf_at(root, [1,1,0,0,0,0])
     s = [split.dims for split in splits(box)]
-    @test s == [(3,4), (1,3), (2,5), (4,6), (5,6), (1,2), (1,5), (3,6), (2,4)]
+    @test s == [(1,3), (2,5), (4,6), (5,6), (3,4), (1,5), (3,6), (2,4), (1,2)]
     s = [split.dims for split in splits(root)]
     @test s == [(1,2), (1,5), (3,6), (2,4), (3,4), (1,3), (2,5), (4,6), (5,6)]
 
@@ -535,7 +542,7 @@ end
         chaintops = typeof(root)[]
         repeats = dimlistss[2] == dimlistss[1]
         for dimlists in dimlistss
-            x = position(box) + 1
+            x = position(box) .+ 1
             bx = box
             box = addpoint!(box, x, dimlists, f)
             for i = 1:ceil(Int, n/2)
@@ -583,7 +590,7 @@ end
     bprod(x, B::AbstractMatrix) = x'*B*x/2
     function bprod(x, B::AbstractArray{T,3}) where T
         s = zero(T)
-        for I in CartesianRange(size(B))
+        for I in CartesianIndices(size(B))
             p = oneunit(T)
             for d in I.I
                 p *= x[d]
@@ -603,7 +610,7 @@ end
             root = Box{p}(world)
             filled = CoordinateSplittingPTrees.SymmetricArray(falses(sz))
             if p > 1
-                for I in CartesianRange(sz)
+                for I in CartesianIndices(sz)
                     if anydups(I.I)
                         filled[I] = true
                     end
@@ -662,6 +669,7 @@ hesscount = 0
     @test abs((Q[1,3])) < 1e-8
     @test abs((Q[2,4])) < 1e-8
     @test abs((Q[1,4])) < 1e-8
+    global hesscount
     @test hesscount == 24
     Q = SymTridiagonal(zeros(4), zeros(3))
     hesscount = 0
@@ -854,17 +862,17 @@ end
     @test x ≈ [2,1,3]
     empty!(ige)
     U, _ = qr(randn(3,3))  # random unitary matrix
-    A = U*Diagonal(linspace(1,3,3))*U'  # random posdef with eigvals 1,2,3
+    A = U*Diagonal(range(1, stop=3, length=3))*U'  # random posdef with eigvals 1,2,3
     rhs = randn(3)
     xtrue = A\rhs
     for i = 1:3
         insert!(ige, A[i,:], rhs[i])
         if i < 3
-            @test !done(ige)
-            @test_throws LinAlg.LAPACKException CoordinateSplittingPTrees.solve(ige)
+            @test !iscomplete(ige)
+            @test_throws LinearAlgebra.LAPACKException CoordinateSplittingPTrees.solve(ige)
         end
     end
-    @test done(ige)
+    @test iscomplete(ige)
     x = CoordinateSplittingPTrees.solve(ige)
     @test x ≈ xtrue
     insert!(ige, A[3,:], 0)
@@ -894,7 +902,7 @@ end
     Q = Float64[0 2; 2 1]
     Qp = CoordinateSplittingPTrees.possemidef(Q)
     @test all(isfinite, Qp) && Qp[1,2] == Q[1,2]
-    cholfact(Qp) # test only that it's positive-definite
+    cholesky(Qp) # test only that it's positive-definite
 end
 
 @testset "Display" begin
@@ -908,11 +916,11 @@ end
     splitprint(io, root)
     @test String(take!(io)) == "(1,)[l, (1,)[l, l]]"
     splitprint_colored(io, root, box1)
-    print_with_color(:cyan, io2, "(1,)")
+    printstyled(io2, "(1,)", color=:cyan)
     print(io2, "[l, ")
-    print_with_color(:cyan, io2, "(1,)")
+    printstyled(io2, "(1,)", color=:cyan)
     print(io2, "[l, ")
-    print_with_color(:light_red, io2, "l")
+    printstyled(io2, "l", color=:light_red)
     print(io2, "]]")
     @test String(take!(io)) == String(take!(io2))
     print_tree(io, root)

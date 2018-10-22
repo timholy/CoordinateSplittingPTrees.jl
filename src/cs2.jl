@@ -387,7 +387,7 @@ function Base.insert!(ige::IGE{T}, x::AbstractVector, newrhs; canswap::Bool=true
     rtol = 1000*eps(T)
 
     coefs, rhs, newrow = ige.coefs, ige.rhs, ige.rowtmp
-    copy!(newrow, x)  # to avoid destroying x
+    copyto!(newrow, x)  # to avoid destroying x
     n = length(rhs)
     i = 0
     while i < n
@@ -420,7 +420,7 @@ function Base.insert!(ige::IGE{T}, x::AbstractVector, newrhs; canswap::Bool=true
     return i
 end
 
-function Base.done(ige::IGE)
+function iscomplete(ige::IGE)
     coefs = ige.coefs
     n = size(coefs, 1)
     for i = 1:n

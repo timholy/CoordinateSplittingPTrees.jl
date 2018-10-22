@@ -1,7 +1,7 @@
 module CSpPlots
 
 using CoordinateSplittingPTrees
-using Makie, GeometryTypes, Colors, PerceptualColourMaps, Compat
+using Makie, GeometryTypes, Colors, PerceptualColourMaps
 
 export plotboxes
 
@@ -20,7 +20,7 @@ function finitebounds(root::Box{p,T}) where {p,T}
     # Get bounds needed to contain all finite positions inside `root`
     xbounds, ybounds = (Inf, -Inf), (Inf, -Inf)
     lower, upper = root.world.lower, root.world.upper
-    bb = Vector{Tuple{T,T}}(uninitialized, 2)
+    bb = Vector{Tuple{T,T}}(undef, 2)
     x = [NaN, NaN]
     lfilled, rfilled = [false, false], [false, false]
     for box in leaves(root)

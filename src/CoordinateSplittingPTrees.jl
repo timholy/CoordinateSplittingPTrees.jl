@@ -1,14 +1,12 @@
-__precompile__(true)
-
 module CoordinateSplittingPTrees
 
+using LinearAlgebra, SparseArrays
 using AbstractTrees  # for display of tree structures
 import BlossomV      # we use matching to select dimension-pairs (see cs2.jl)
-using Compat
 
 export Box, World
 export position, boxbounds, meta, value, addpoint!
-export getroot, getleaf, find_leaf_at, degree, isroot, isleaf, chaintop
+export getroot, getleaf, find_leaf_at, degree, isroot, isleaf, chaintop, iscomplete
 export leaves, splits, chain, splitprint, splitprint_colored, print_tree
 
 include("types.jl")
@@ -108,7 +106,7 @@ function addpoint!(box::Box, x, dimlists, metagen::Function)
     b = position(box)
     y = copy(b)
     L = maxchildren(box)-1
-    metas = Vector{typeof(meta(box))}(uninitialized, L)
+    metas = Vector{typeof(meta(box))}(undef, L)
     l = falses(degree(box))
     for dimlist in dimlists
         dimlistv = [dimlist...]

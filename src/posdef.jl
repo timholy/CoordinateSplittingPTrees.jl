@@ -39,7 +39,7 @@ NaN entries of Q are treated as 0. Q is assumed to be symmetric and
 only the lower triangle is used.
 """
 function possemidef(Q::AbstractMatrix)
-    ind1, ind2 = indices(Q)
+    ind1, ind2 = axes(Q)
     ind1 == ind2 || error("Matrix must be square")
     Qp = copy(Q)
     for i in ind1

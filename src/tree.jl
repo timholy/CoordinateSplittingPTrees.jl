@@ -19,7 +19,7 @@ function splitprint(io::IO, box::Box)
         print(io, ']')
     end
 end
-splitprint(box::Box) = splitprint(STDOUT, box)
+splitprint(box::Box) = splitprint(stdout, box)
 
 """
     splitprint_colored([io::IO], box, innerbox)
@@ -29,12 +29,12 @@ of parents of `innerbox` are highlighted in cyan.
 """
 function splitprint_colored(io::IO, box::Box, thisbox::Box, allparents=get_allparents(thisbox))
     if isleaf(box)
-        box == thisbox ? print_with_color(:light_red, io, 'l') : print(io, 'l')
+        box == thisbox ? printstyled(io, 'l', color=:light_red) : print(io, 'l')
     else
         if box == thisbox
-            print_with_color(:light_red, io, box.split.dims)
+            printstyled(io, box.split.dims, color=:light_red)
         elseif box ∈ allparents
-            print_with_color(:cyan, io, box.split.dims)
+            printstyled(io, box.split.dims, color=:cyan)
         else
             print(io, box.split.dims)
         end
@@ -47,7 +47,7 @@ function splitprint_colored(io::IO, box::Box, thisbox::Box, allparents=get_allpa
         print(io, ']')
     end
 end
-splitprint_colored(box::Box, thisbox::Box) = splitprint_colored(STDOUT, box, thisbox)
+splitprint_colored(box::Box, thisbox::Box) = splitprint_colored(stdout, box, thisbox)
 
 function get_allparents(box)
     allparents = Set{typeof(box)}()
@@ -67,7 +67,7 @@ end
 
 Return the n-dimensional position vector `x` at which this box was evaluated.
 """
-Base.position(box::Box{p,T}) where {p,T} = position!(Vector{T}(uninitialized, ndims(box)), box)
+Base.position(box::Box{p,T}) where {p,T} = position!(Vector{T}(undef, ndims(box)), box)
 
 """
     x = position(box, d::Integer)
@@ -81,8 +81,8 @@ function Base.position(box::Box, d::Integer)
         childindex = box.childindex
         if !isself(box)
             split = p.split
-            i = findfirst(split.dims, d)
-            if i > 0 && ((childindex >> (i-1))&0x01) != 0x00
+            i = findfirst(isequal(d), split.dims)
+            if i !== nothing && ((childindex >> (i-1))&0x01) != 0x00
                 return split.xs[i]
             end
         end
@@ -97,11 +97,11 @@ end
 
 Fill `x` with the n-dimensional position of `box`. Including `filled` avoids allocation of temporaries.
 """
-position!(x, box::Box) = position!(x, Vector{Bool}(uninitialized, ndims(box)), box)
+position!(x, box::Box) = position!(x, Vector{Bool}(undef, ndims(box)), box)
 
 function position!(x, filled, box::Box)
     N = ndims(box)
-    @assert(linearindices(x) == linearindices(filled) == Base.OneTo(N))
+    @assert(LinearIndices(x) == LinearIndices(filled) == Base.OneTo(N))
     # Fill in default values (those corresponding to root)
     for i = 1:N
         x[i] = baseposition(box.world.position[i])
@@ -133,7 +133,7 @@ end
 Compute the bounds (edge positions) of `box`. `bbs[d] = (lower, upper)` for dimension `d`.
 """
 function boxbounds(box::Box{p,T}) where {p,T}
-    bbs = Vector{Tuple{T,T}}(uninitialized, ndims(box))
+    bbs = Vector{Tuple{T,T}}(undef, ndims(box))
     return boxbounds!(bbs, box)
 end
 
@@ -149,8 +149,8 @@ function boxbounds(box::Box, d::Integer)
     while !isroot(box) && !(lfilled & ufilled)
         p = box.parent
         split = p.split
-        i = findfirst(split.dims, d)
-        if i > 0
+        i = findfirst(isequal(d), split.dims)
+        if i !== nothing
             xs, xo = position(split.self, d), split.xs[i]
             x = position(box0, d)
             # @show p lower upper lfilled ufilled xs xo x
@@ -174,10 +174,9 @@ end
 
 Fill `bbs` with the bounds (edge positions) of `box`.
 """
-
 function boxbounds!(bbs, box::Box)
-    lfilled = Vector{Bool}(uninitialized, ndims(box))
-    ufilled = Vector{Bool}(uninitialized, ndims(box))
+    lfilled = Vector{Bool}(undef, ndims(box))
+    ufilled = Vector{Bool}(undef, ndims(box))
     boxbounds!(bbs, lfilled, ufilled, box)
 end
 
@@ -223,7 +222,7 @@ collinear with `position(box)` along dimension `i`. Being collinear
 along dimension `i` implies that `position(otherbox, j) == position(box, j)`
 for any dimension `j != i`.
 """
-ncollinear(box::Box, top::Box=getroot(box)) = ncollinear!(Vector{Int}(uninitialized, ndims(box)), Vector{Bool}(uninitialized, ndims(box)), box, top)
+ncollinear(box::Box, top::Box=getroot(box)) = ncollinear!(Vector{Int}(undef, ndims(box)), Vector{Bool}(undef, ndims(box)), box, top)
 
 function ncollinear!(nc::AbstractVector{Int}, filled::AbstractVector{Bool}, box::Box, top::Box=getroot(box))
     fill!(nc, 0)
@@ -257,9 +256,9 @@ function _ncollinear!(nc, box, splitdim)
         return nc
     end
     split = box.split
-    i = findfirst(split.dims, splitdim)
+    i = findfirst(isequal(splitdim), split.dims)
     _ncollinear!(nc, split.self, splitdim)
-    i == 0 && return nc
+    i === nothing && return nc
     childidx = 1 << (i-1)
     _ncollinear!(nc, split.others.children[childidx], splitdim)
 end
@@ -312,8 +311,8 @@ function meta(box::Box)
     return box.parent.split.others.metas[box.childindex]
 end
 
-getchild(split, childidx) = childidx == 0 ? split.self :
-                                            split.others.children[childidx]
+getchild(split::Split, childidx) = childidx == 0 ? split.self :
+                                                   split.others.children[childidx]
 
 # """
 #     boxp = find_parent_with_splitdim(box, splitdim::Integer)
@@ -380,37 +379,28 @@ end
 
 ### Iteration
 
-Base.start(root::Box) = VisitorState(root, 0)
-Base.done(root::Box, state::VisitorState) = state.childindex >= maxchildren(root)
-
-function Base.next(root::Box, state::VisitorState)
-    item, childindex = state.box, state.childindex
-    # Depth-first search, visiting the parent (container) node before
-    # visiting self & other children
-    if isleaf(item)
-        # Since we're at a leaf, for the next item we must go up the tree
-        box, childindex = up(item, root)
-        if 0 < childindex < maxchildren(root)
-            return (item, VisitorState(box.split.others.children[childindex], 0))
-        end
-        @assert(box == root && childindex > 0)
-        return (item, VisitorState(root, maxchildren(root)))
-    end
-    return (item, VisitorState(item.split.self, 0))
+function Base.iterate(root::Box)
+    isleaf(root) && return root, VisitorState(root, maxchildren(root))
+    return root, VisitorState(root, 0)
 end
 
-function up(box, root)
-    # println("starting up with $box")
-    box == root && return (box, maxchildren(root))
-    local childindex
-    while true
-        box, childindex = box.parent, box.childindex
-        # println("  to parent $box with childindex $childindex")
-        # If this was the last of the parent's children, keep going up
-        (box == root || childindex < maxchildren(root)-1) && break
+function Base.iterate(root::Box, state::VisitorState)
+    box, childindex = state.box, state.childindex
+    if childindex < maxchildren(box) && !isleaf(box)
+        # descend
+        item = getchild(box.split, childindex)
+        return item, VisitorState(item, isleaf(item) ? maxchildren(item) : 0)
     end
-    # println("  isroot(box) = $(isroot(box))")
-    return (box, childindex+1)
+    # ascend
+    while box != root
+        childindex = box.childindex + 1
+        box = box.parent
+        if childindex < maxchildren(box)
+            item = getchild(box.split, childindex)
+            return item, VisitorState(item, isleaf(item) ? maxchildren(item) : 0)
+        end
+    end
+    return nothing
 end
 
 
@@ -465,82 +455,126 @@ function nobranch(box, skipchildindex, childindex)
          isleaf(getchild(box.split, childindex)))
 end
 
-function Base.start(splits::SplitIterator)
+function Base.iterate(splits::SplitIterator)
     box = splits.base
-    isleaf(box) && return ClimbingState(box, false)
-    return ClimbingState(box.split.self, false, typemax(box.childindex))  # don't skip any of the children
-end
-
-function Base.next(splits::SplitIterator, state::ClimbingState)
-    split, visited = state.box.split, state.visited
-    item, state = _next(splits, state)
-    if item == split && visited
-        item, state = _next(splits, state)
+    if !isleaf(box)
+        # Start at the current split if that's what was used to create the iterator
+        branchhead = box.split.self
+        branchiter = Iterators.filter(isnonleaf, branchhead)
+        return box.split, ClimbingState(box, true, typemax(UInt8), 0, branchiter, VisitorState(branchhead, -1))
     end
-    return item, state
+    # The iterator was created from a leaf, which has no splits.
+    # Go up and grab a sibling or parent.
+    isroot(box) && return nothing
+    skipchildindex, childindex = box.childindex, 0
+    box = box.parent
+    while nobranch(box, skipchildindex, childindex)
+        childindex += 1
+    end
+    if childindex >= maxchildren(box)
+        # This is a tree with only 1 split, so use the parent
+        branchiter = Iterators.filter(isnonleaf, box)
+        item, branchstate = iterate(branchiter)
+        return item.split, ClimbingState(box, true, skipchildindex, childindex, branchiter, branchstate)
+    end
+    # Return a sibling
+    branchhead = getchild(box.split, childindex)
+    branchiter = Iterators.filter(isnonleaf, branchhead)
+    item, branchstate = iterate(branchiter)  # this can't fail to return an item, because we already checked
+    return item.split, ClimbingState(box, false, skipchildindex, childindex, branchiter, branchstate)
 end
 
-function _next(splits, state)
+Base.iterate(splits::SplitIterator, ::Nothing) = iterate(splits)
+
+function Base.iterate(splits::SplitIterator, state::ClimbingState)
+    # First, try iterating on the existing branch and see if that returns a valid item
     branchiter, branchstate = state.branchiter, state.branchstate
-    if !done(branchiter, branchstate)
-        box, branchstate = next(branchiter, branchstate)
+    ret = branchstate.childindex < 0 ? iterate(branchiter) : iterate(branchiter, branchstate)
+    if ret !== nothing
+        box, branchstate = ret
         return box.split, ClimbingState(state, branchstate)
     end
+    # The branch is done. Let's see if we can find another one.
     box = state.box
-    item = box.split
-    # Find the next valid split
     skipchildindex, childindex = state.skipchildindex, state.childindex+1
     while nobranch(box, skipchildindex, childindex)
         childindex += 1
     end
-    if childindex >= maxchildren(box)  # go up
-        return item, ClimbingState(box, state.visited)
+    if childindex < maxchildren(box)
+        # We still haven't exhausted the children of the current box
+        branchhead = getchild(box.split, childindex)
+        branchiter = Iterators.filter(isnonleaf, branchhead)
+        item, branchstate = iterate(branchiter)  # this can't fail to return an item, because we already checked
+        return item.split, ClimbingState(box, state.visited, skipchildindex, childindex, branchiter, branchstate)
     end
-    iter = Iterators.filter(isnonleaf, getchild(box.split, childindex))
-    return item, ClimbingState(box, true, skipchildindex, childindex, iter, start(iter))
+    if !state.visited
+        # We haven't returned the current box's split, so do that now
+        return box.split, ClimbingState(box, true, state.skipchildindex, childindex, branchiter, branchstate)
+    end
+    # Go up
+    isroot(box) && return nothing
+    skipchildindex = box.childindex
+    box = box.parent
+    childindex = 0
+    while nobranch(box, skipchildindex, childindex)
+        childindex += 1
+    end
+    if childindex >= maxchildren(box)
+        return box.split, ClimbingState(box, true, state.skipchildindex, childindex, branchiter, branchstate)
+    end
+    branchhead = getchild(box.split, childindex)
+    branchiter = Iterators.filter(isnonleaf, branchhead)
+    item, branchstate = iterate(branchiter)  # this can't fail to return an item, because we already checked
+    return item.split, ClimbingState(box, false, skipchildindex, childindex, branchiter, branchstate)
 end
 
-function Base.done(splits::SplitIterator, state::ClimbingState)
-    (isroot(state.box) & state.visited) || return false
-    done(state.branchiter, state.branchstate) || return false
-    state.childindex >= maxchildren(splits)-1 && return true
-    split = state.box.split
-    for i = state.childindex+1:maxchildren(splits)-1
-        i == state.skipchildindex && continue
-        isleaf(getchild(split, i)) || return false
-    end
-    return true
-end
+"""
+    iter = chain(box)
 
+Create an iterator that visits splits that minimally cover all dimensions
+"""
 chain(box::Box) = ChainIterator(box)
 
-Base.start(iter::ChainIterator) = (iter.base, 0)
-function Base.next(iter::ChainIterator{B}, state) where B<:Box{p} where p
-    box, count = state
+function Base.iterate(iter::ChainIterator)
+    ndims(iter.base) == 0 && return nothing
+    box, count = iter.base, 0
     item = box.split
-    return item, (item.others.children[end], count+p)
-end
-function Base.done(iter::ChainIterator{B}, state) where B<:Box{p} where p
-    return state[2] >= ndims(iter.base)
+    return item, (item.others.children[end], count+degree(box))
 end
 
+function Base.iterate(iter::ChainIterator, state)
+    state[2] >= ndims(iter.base) && return nothing
+    box, count = state
+    item = box.split
+    return item, (item.others.children[end], count+degree(box))
+end
 
 Base.length(iter::Union{Box,CSpTreeIterator}) = _length(iter)
 Base.length(iter::Iterators.Filter{F,I}) where {F,I<:Union{Box,CSpTreeIterator}} =
     _length(iter)
 
 function _length(iter)
-    state = start(iter)
     len = 0
-    while !done(iter, state)
-        _, state = next(iter, state)
+    ret = iterate(iter)
+    while ret !== nothing
         len += 1
+        _, state = ret
+        ret = iterate(iter, state)
     end
     len
+end
+
+function skipsplits(iter, skip)
+    skip == 0 && return nothing
+    _, state = iterate(iter)
+    for i = 1:skip-1
+        _, state = iterate(iter, state)
+    end
+    return state
 end
 
 # useful for debugging
 function Base.show(io::IO, state::ClimbingState)
     println(io, "box $(state.box), visited $(state.visited), splitdims $(state.box.split.dims), skipidx $(state.skipchildindex), childidx $(state.childindex)")
-    print(io, "branchiter $(state.branchiter.root), branch-is-done $(done(state.branchiter, state.branchstate))")
+    print(io, "branchiter $(state.branchiter), branch-is-done $(iterate(state.branchiter, state.branchstate)===nothing)")
 end

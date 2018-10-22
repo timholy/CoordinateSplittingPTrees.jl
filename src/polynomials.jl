@@ -133,10 +133,7 @@ function coefficients_p(f::Function, box::Box{p,T}, callback::Function;
                         skip::Int=0) where {p,T}
     # Create the iterator
     iter = splits(box)
-    state = start(iter)
-    for i = 1:skip
-        _, state = next(iter, state)
-    end
+    state = skipsplits(iter, skip)
     Cp, state = coefficients_p(f, box, iter, state, callback)
     return Cp
 end
@@ -164,10 +161,7 @@ coefficients_p!(Cp::AbstractArray, box::Box{p,T}, callback::Function;
 function coefficients_p!(f::Function, Cp::AbstractArray, box::Box{p,T}, callback::Function;
                          skip::Int=0) where {p,T}
     iter = splits(box)
-    state = start(iter)
-    for i = 1:skip
-        _, state = next(iter, state)
-    end
+    state = skipsplits(iter, skip)
     Cp, state = coefficients_p!(f, Cp, box, iter, state, callback)
     return Cp
 end
@@ -208,8 +202,10 @@ function coefficients_p!(f::Function,
     nremaining = nnz_offdiag_sym(Cp)
     fillnz!(Cp, NaN)
     # Iterate until we fill all coefficients or exhaust the tree
-    while !done(iter, state)
-        split, state = next(iter, state)
+    result = iterate(iter, state)
+    while result !== nothing
+        split, state = result
+        result = iterate(iter, state)
         dims = split.dims
         maximum(dims) > n && continue
         if isnan(Cp[dims...])
