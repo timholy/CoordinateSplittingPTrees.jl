@@ -133,6 +133,7 @@ end
 Base.ndims(world::World) = length(world.position)
 baseposition(world::World{T}) where T = baseposition(T, world.position)
 
+Base.in(position::AbstractVector, world::World) = all(t->((x, l, u) = t; l <= x <= u), zip(position, world.lower, world.upper))
 
 ## Box
 
@@ -183,23 +184,26 @@ function Base.show(io::IO, split::Split)
     print(io, " along $(split.dims) at $(split.xs))")
 end
 
-mutable struct Box{p,T,M,L,P}
+mutable struct Box{p,T,M,L,P,MB}
     world::World{T,P,M}      # the overall problem domain
-    parent::Box{p,T,M,L,P}   # the node above this one
+    parent::Box{p,T,M,L,P,MB}   # the node above this one
     childindex::UInt8        # which of parent's children is this? (0=self)
-    split::Split{p,T,M,Box{p,T,M,L,P},L}  # undefined if this box is a leaf node
+    split::Split{p,T,M,Box{p,T,M,L,P,MB},L}  # undefined if this box is a leaf node
+    metabox::MB
 
-    function Box{p,T,M,L,P}(world::World{T,P,M}) where {p,T,M,L,P}
+    function Box{p,T,M,L,P,MB}(world::World{T,P,M}, metabox) where {p,T,M,L,P,MB}
         p > 8 && error("degree must be less than or equal to 8 (change childindex::UInt8 for p>8)")
-        root = new{p,T,M,L,P}(world)
+        root = new{p,T,M,L,P,MB}(world)
         root.parent = root
         root.childindex = 0
+        root.metabox = metabox
         return root
     end
 
-    function Box{p,T,M,L,P}(parent::Box{p,T,M,L,P}, splitdims::NTuple{p,Integer}, xs::NTuple{p,Real}, metas::NTuple{L,M}) where {p,T,M,L,P}
-        function box(parent::Box{p,T,M,L,P}, childindex::Integer) where {p,T,M,L,P}
-            return new{p,T,M,L,P}(parent.world, parent, childindex)
+    function Box{p,T,M,L,P,MB}(parent::Box{p,T,M,L,P,MB}, splitdims::NTuple{p,Integer},
+                               xs::NTuple{p,Real}, metas::NTuple{L,M}) where {p,T,M,L,P,MB}
+        function box(parent::Box{p,T,M,L,P,MB}, childindex::Integer) where {p,T,M,L,P,MB}
+            return new{p,T,M,L,P,MB}(parent.world, parent, childindex)
         end
 
         @noinline throw0(sd, mxd) = error("got split along dimension $sd, max allowed is $mxd")
@@ -241,7 +245,7 @@ mutable struct Box{p,T,M,L,P}
         return others
     end
 end
-Box{p}(world::World{T,P,M}) where {p,T,M,P} = Box{p,T,M,calcL(Val(p)),P}(world)
+Box{p}(world::World{T,P,M}, metabox=nothing) where {p,T,M,P} = Box{p,T,M,calcL(Val(p)),P,typeof(metabox)}(world, metabox)
 
 """
     root = Box{p}(world::World)
@@ -263,15 +267,15 @@ where `xp` is `position(parent)[splitdims]`.  For dimensions not
 listed in `splitdims`, the positions of these children are all
 identical to the parent evaluation point.
 """
-Box(parent::Box{p,T,M,L,P}, splitdims::NTuple{p,Integer}, xs::NTuple{p,Real}, metas::NTuple{L,Any}) where {p,T,M,L,P} =
-    Box{p,T,M,L,P}(parent, splitdims, xs, metas)
+Box(parent::Box{p,T,M,L,P,MB}, splitdims::NTuple{p,Integer}, xs::NTuple{p,Real}, metas::NTuple{L,Any}) where {p,T,M,L,P,MB} =
+    Box{p,T,M,L,P,MB}(parent, splitdims, xs, metas)
 
 Box(parent::Box{1,T,M,1}, splitdim::Integer, x::Real, meta) where {T,M} =
     Box(parent, (splitdim,), (x,), (meta,))
 
 # You can supply fewer than p dimensions, in which case we fill in
 # with fictive dimensions
-function Box(parent::Box{p,T,M,L,P}, splitdims::NTuple{k,Integer}, xs::NTuple{k,Real}, metas) where {p,T,M,k,L,P}
+function Box(parent::Box{p,T,M,L,P,MB}, splitdims::NTuple{k,Integer}, xs::NTuple{k,Real}, metas) where {p,T,M,k,L,P,MB}
     0 < k <= p || throw(DimensionMismatch("got $k dimensions, max allowed is $p"))
     nmeta = 2^k-1
     length(metas) == nmeta || error("got $(length(metas)) metadatas for $k split dimensions, need $nmeta")
@@ -290,7 +294,7 @@ function Box(parent::Box{p,T,M,L,P}, splitdims::NTuple{k,Integer}, xs::NTuple{k,
             return i == 0 ? parentmeta : metas[i]
         end
     end
-    return Box{p,T,M,L,P}(parent, splitdimspad, xspad, metaspad)
+    return Box{p,T,M,L,P,MB}(parent, splitdimspad, xspad, metaspad)
 end
 
 
@@ -315,7 +319,7 @@ degree(::Type{B}) where B<:Box{p} where p = p
 degree(box::Box) = degree(typeof(box))
 boxcoordtype(::Type{B}) where B<:Box{p,T} where {p,T} = T
 boxcoordtype(box::Box) = boxcoordtype(typeof(box))
-maxchildren(::Type{Box{p,T,M,L,P}}) where {p,T,M,L,P} = L+1
+maxchildren(::Type{Box{p,T,M,L,P,MB}}) where {p,T,M,L,P,MB} = L+1
 maxchildren(::Type{B}) where B<:Box{p} where p = 1<<p  # for partial type like Box{2}
 maxchildren(box::Box) = maxchildren(typeof(box))
 isnonleaf(box) = !isleaf(box)

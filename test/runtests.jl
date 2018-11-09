@@ -1,6 +1,7 @@
 using CoordinateSplittingPTrees
 import AbstractTrees
 using Test, Random, LinearAlgebra, SparseArrays
+using GLPK
 include("functions.jl")
 
 struct DummyMeta
@@ -95,6 +96,8 @@ end
     @test_throws ErrorException find_leaf_at(root, [1.2])
     @test length(root) == 5
     @test length(leaves(root)) == 3
+    @test position(leaf) ∈ root
+    @test position(leaf) ∈ leaf
 
     world = World([0], [Inf], [0], 10) # with infinite size
     root = Box{1}(world)
@@ -191,6 +194,8 @@ end
     @test myapproxeq(boxbounds(b1_1, 1), (2/3, 1.5))
     @test boxbounds(b1_1, 2) == (0, 1.5)
     @test myapproxeq(boxbounds(b1_1), [(2/3, 1.5), (0, 1.5)])
+
+    @test all(CoordinateSplittingPTrees.splittable, boxbounds(b1_1))
 
     geom = Dict()
     root = generate_randboxes(Box{1}, 2, 10, (args...)->record_geometry!(geom, args...))
@@ -853,6 +858,40 @@ end
     end
 end
 
+@testset "Lowerbound models" begin
+    f(x) = sum(abs2, x)/2 + x[1]*x[2]/5
+    world = World([1.0,1.0,1.0,1.0], f)
+    n = ndims(world)
+    root = Box{2}(world)
+    for i = 1:n+2
+        addpoint!(root, randn(n), f)
+    end
+    box = minimum(root)
+
+    updater, model, gp, dp, Q = CoordinateSplittingPTrees.lowerbound_model(box, GLPK.Optimizer())
+    c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic_lowerbound!(Q, updater, model, gp, dp, box)
+    Qtarget = Matrix(Diagonal(ones(n)))
+    Qtarget[1,2] = Qtarget[2,1] = 0.2
+    @test Q ≈ Qtarget rtol=0.01
+    @test g ≈ Q*b rtol=0.01
+
+    # Check that it works with an excess of points
+    updater, model, gp, dp, Q = CoordinateSplittingPTrees.lowerbound_model(box, GLPK.Optimizer(), 3n)
+    c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic_lowerbound!(Q, updater, model, gp, dp, box)
+    Qtarget = Matrix(Diagonal(ones(n)))
+    Qtarget[1,2] = Qtarget[2,1] = 0.2
+    @test Q ≈ Qtarget rtol=0.01
+    @test g ≈ Q*b rtol=0.01
+
+    # Check that nothing breaks if we ask for more constraints than we have boxes
+    updater, model, gp, dp, Q = CoordinateSplittingPTrees.lowerbound_model(box, GLPK.Optimizer(), length(leaves(root))+1)
+    c, g, Q, b = CoordinateSplittingPTrees.fit_quadratic_lowerbound!(Q, updater, model, gp, dp, box)
+    Qtarget = Matrix(Diagonal(ones(n)))
+    Qtarget[1,2] = Qtarget[2,1] = 0.2
+    @test Q ≈ Qtarget rtol=0.01
+    @test g ≈ Q*b rtol=0.01
+end
+
 @testset "Gauss elim" begin
     ige = CoordinateSplittingPTrees.IGE{Float64}(3)
     insert!(ige, [0,1,0], 1)
@@ -963,4 +1002,23 @@ end
 │  └─ Box700@[3.5, 20.0, -10.0]
 └─ Box400@[10.0, 20.0, 1.0]
 """
+end
+
+@testset "Box metadata" begin
+    world = World([1, 1], 10.0)
+    root = Box{2}(world, (-1, 1))
+    local incrementor
+    let counter = 1
+        incrementor(box) = (counter += 1; (-counter,counter))
+    end
+    addpoint!(root, [2.0, 1.8], x->sum(x), incrementor)
+    @test root.metabox == (-1, 1)
+    i = 1
+    for leaf in leaves(root)
+        i += 1
+        @test leaf.metabox == (-i, i)
+    end
+    io = IOBuffer()
+    print_metabox(io, root)
+    @test String(take!(io)) == "Box10.0@[1.0, 1.0] with metadata (-1, 1)"
 end

@@ -59,6 +59,7 @@ function get_allparents(box)
     allparents
 end
 
+print_metabox(io::IO, box::Box) = print(io, box, " with metadata ", box.metabox)
 
 ### Geometry
 
@@ -214,6 +215,13 @@ function boxbounds!(bbs, lfilled, ufilled, box::Box)
     bbs
 end
 
+function Base.in(xs::AbstractVector, box::Box)
+    for (bb, x) in zip(boxbounds(box), xs)
+        bb[1] <= x <= bb[2] || return false
+    end
+    return true
+end
+
 """
     nc = ncollinear(box, top=getroot(box))
 
@@ -270,6 +278,9 @@ function epswidth(bb::Tuple{T,T}) where T<:AbstractFloat
     return max(w1, w2)
 end
 epswidth(bb::Tuple{Real,Real}) = epswidth(Float64.(bb))
+
+# 10*eps is pretty arbitrary, but not unreasonable
+splittable(bb::Tuple{Real,Real}) = bb[2] - bb[1] > 10*epswidth(bb)
 
 ### Traversal
 
@@ -551,6 +562,8 @@ end
 
 Base.length(iter::Union{Box,CSpTreeIterator}) = _length(iter)
 Base.length(iter::Iterators.Filter{F,I}) where {F,I<:Union{Box,CSpTreeIterator}} =
+    _length(iter)
+Base.length(iter::Iterators.Filter{F,I}) where {F,I<:Iterators.Filter{F2,I2}} where {F2,I2<:Box} =
     _length(iter)
 
 function _length(iter)

@@ -37,33 +37,35 @@ function finitebounds(root::Box{p,T}) where {p,T}
     widenbounds(xbounds), widenbounds(ybounds)
 end
 
-function plotboxes(root::Box, xbounds::Tuple{Any,Any}, ybounds::Tuple{Any,Any};
-                   clim=value.(extrema(root)),
+function plotboxes(f::Function, root::Box, xbounds::Tuple{Any,Any}, ybounds::Tuple{Any,Any};
+                   clim=f.(extrema(root)),
                    cs::AbstractVector{<:Colorant}=cmap("RAINBOW3"))
     @assert(ndims(root) == 2)
     scene = Scene()
     rects, cols, points = Rectangle{Float32}[], eltype(cs)[], Point{2,Float32}[]
     for bx in leaves(root)
-        addrect!(rects, cols, points, bx, clim, cs, xbounds, ybounds)
+        addrect!(f, rects, cols, points, bx, clim, cs, xbounds, ybounds)
     end
-    poly(rects, color=cols, linecolor=:black)
-    scatter(points, color=:black, markersize=0.03)
+    poly!(scene, rects, color=cols, linecolor=:black)
+    scatter!(scene, points, color=:black, markersize=0.03)
     center!(scene)
-    nothing
+    return scene
 end
-plotboxes(root::Box;
-          clim=value.(extrema(root)),
-          cs::AbstractVector{<:Colorant}=cmap("RAINBOW3")) =
-    plotboxes(root, finitebounds(root)...; clim=clim, cs=cs)
+plotboxes(root::Box; kwargs...) =
+    plotboxes(root, finitebounds(root)...; kwargs...)
+plotboxes(root::Box, xbounds::Tuple{Any,Any}, ybounds::Tuple{Any,Any}; kwargs...) =
+    plotboxes(value, root, xbounds, ybounds; kwargs...)
+plotboxes(f::Function, root::Box; kwargs...) =
+    plotboxes(f, root, finitebounds(root)...; kwargs...)
 
-function addrect!(rects, cols, points, box::Box, clim, cs, xbounds, ybounds)
+function addrect!(f, rects, cols, points, box::Box, clim, cs, xbounds, ybounds)
     @assert(isleaf(box))
     @assert(ndims(box) == 2)
     x = position(box)
     bbx, bby = boxbounds(box)
     bbx, bby = clamp.(bbx, xbounds...), clamp.(bby, ybounds...)
     rect = Rectangle{Float32}(bbx[1], bby[1], bbx[2]-bbx[1], bby[2]-bby[1])
-    fval = value(box)
+    fval = f(box)
     if isfinite(fval)
         push!(rects, rect)
         cnorm = (clamp(fval, clim...) - clim[1])/(clim[2] - clim[1])
